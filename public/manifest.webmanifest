@@ -1,0 +1,8 @@
+{
+  "name": "مركز علي الحيدر - Qur'an Revision Examination",
+  "short_name": "Qur'an Exam",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f7f1",
+  "theme_color": "#104b37"
+}
