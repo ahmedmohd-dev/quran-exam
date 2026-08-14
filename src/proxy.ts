@@ -24,11 +24,29 @@ export async function proxy(request: NextRequest) {
     url.pathname = "/login";
     return NextResponse.redirect(url);
   }
-  if (user && request.nextUrl.pathname.startsWith("/admin")) {
+  if (user) {
     const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
-    if (profile?.role !== "admin") {
+    const { data: accessPeriod } = profile?.role === "ustaz"
+      ? await supabase.from("exam_periods").select("ustaz_access_blocked").order("created_at", { ascending: false }).limit(1).maybeSingle()
+      : { data: null };
+    if (profile?.role === "ustaz" && accessPeriod?.ustaz_access_blocked && !request.nextUrl.pathname.startsWith("/access-blocked")) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/access-blocked";
+      return NextResponse.redirect(url);
+    }
+    if (request.nextUrl.pathname.startsWith("/admin") && profile?.role !== "admin") {
       const url = request.nextUrl.clone();
       url.pathname = "/";
+      return NextResponse.redirect(url);
+    }
+    if (request.nextUrl.pathname.startsWith("/examiner") && profile?.role !== "examiner") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/";
+      return NextResponse.redirect(url);
+    }
+    if (request.nextUrl.pathname === "/" && profile?.role === "examiner") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/examiner";
       return NextResponse.redirect(url);
     }
   }

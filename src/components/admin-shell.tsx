@@ -5,7 +5,7 @@ import logo from "../../assets/logo.jpg";
 import { SignOutButton } from "@/components/sign-out-button";
 
 type AdminShellProps = {
-  active: "periods" | "users" | "students";
+  active: "periods" | "users" | "students" | "assignments" | "classification" | "review" | "results" | "progress" | "packets";
   children: ReactNode;
 };
 
@@ -19,6 +19,12 @@ export function AdminShell({ active, children }: AdminShellProps) {
           <Link className={active === "periods" ? "active" : ""} href="/admin/periods">Registration control</Link>
           <Link className={active === "users" ? "active" : ""} href="/admin/users">User accounts</Link>
           <Link className={active === "students" ? "active" : ""} href="/admin/students">Students</Link>
+          <Link className={active === "classification" ? "active" : ""} href="/admin/classification">Classification</Link>
+          <Link className={active === "assignments" ? "active" : ""} href="/admin/assignments">Assignments</Link>
+          <Link className={active === "review" ? "active" : ""} href="/admin/review">Review assignments</Link>
+          <Link className={active === "results" ? "active" : ""} href="/admin/results">Test results</Link>
+          <Link className={active === "progress" ? "active" : ""} href="/admin/progress">Exam progress</Link>
+          <Link className={active === "packets" ? "active" : ""} href="/admin/assistant-packets">Assistant packets</Link>
           <span>Examiner setup <small>Phase 2</small></span>
         </nav>
         <div className="admin-help"><strong>Need help?</strong><span>Set the registration dates, then add Ustaz accounts.</span><SignOutButton className="admin-sign-out" /></div>
