@@ -9,6 +9,10 @@ type Group = { id: string; group_title: string; place_start: number; place_end: 
 type Student = { registrationId: string; name: string; number: string; ustazId: string; ustazName: string; level: "alif" | "quran"; place: number };
 type Assignment = { student_registration_id: string; examiner_id: string };
 
+function escapeHtml(value: string) {
+  return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] ?? character);
+}
+
 export default function AssignmentsPage() {
   const [periodId, setPeriodId] = useState<string | null>(null);
   const [examiners, setExaminers] = useState<Person[]>([]);
@@ -63,11 +67,30 @@ export default function AssignmentsPage() {
   useEffect(() => { const timer = window.setTimeout(() => { void loadData(); }, 0); return () => window.clearTimeout(timer); }, []);
 
   const assignedIds = useMemo(() => new Set(assignments.map((assignment) => assignment.student_registration_id)), [assignments]);
+  const conflictedAssignedIds = useMemo(() => {
+    const studentById = new Map(students.map((student) => [student.registrationId, student]));
+    return new Set(assignments.filter((assignment) => {
+      const student = studentById.get(assignment.student_registration_id);
+      return Boolean(student && (links[assignment.examiner_id] ?? []).includes(student.ustazId));
+    }).map((assignment) => assignment.student_registration_id));
+  }, [assignments, links, students]);
   const regularStudents = useMemo(() => students.filter((student) => !bigUstazIds.includes(student.ustazId)), [students, bigUstazIds]);
-  const unassignedStudents = useMemo(() => students.filter((student) => !assignedIds.has(student.registrationId)), [assignedIds, students]);
-  const selectedStudents = useMemo(() => unassignedStudents.filter((student) => selectedStudentIds.includes(student.registrationId)), [selectedStudentIds, unassignedStudents]);
   const linkedIds = (examinerId: string) => links[examinerId] ?? [];
   const rangeStudents = (group: Group) => regularStudents.filter((student) => student.level === group.learning_level && student.place >= group.place_start && student.place <= group.place_end);
+  const rangeConflictIds = useMemo(() => new Set(groups.flatMap((group) => {
+    const examinerId = selectedExaminers[group.id];
+    if (!examinerId) return [];
+    const assignmentByStudent = new Map(assignments.map((assignment) => [assignment.student_registration_id, assignment.examiner_id]));
+    return regularStudents.filter((student) => student.level === group.learning_level && student.place >= group.place_start && student.place <= group.place_end && (links[examinerId] ?? []).includes(student.ustazId) && assignmentByStudent.get(student.registrationId) === examinerId).map((student) => student.registrationId);
+  })), [assignments, groups, links, regularStudents, selectedExaminers]);
+  const bigConflictIds = useMemo(() => new Set(bigUstazIds.flatMap((ownerId) => {
+    const examinerId = selectedExaminers["big:" + ownerId];
+    if (!examinerId || !(links[examinerId] ?? []).includes(ownerId)) return [];
+    const assignmentByStudent = new Map(assignments.map((assignment) => [assignment.student_registration_id, assignment.examiner_id]));
+    return students.filter((student) => student.ustazId === ownerId && assignmentByStudent.get(student.registrationId) === examinerId).map((student) => student.registrationId);
+  })), [assignments, bigUstazIds, links, selectedExaminers, students]);
+  const unassignedStudents = useMemo(() => students.filter((student) => !assignedIds.has(student.registrationId)), [assignedIds, students]);
+  const selectedStudents = useMemo(() => unassignedStudents.filter((student) => selectedStudentIds.includes(student.registrationId)), [selectedStudentIds, unassignedStudents]);
 
   function toggleUstaz(examinerId: string, ustazId: string) {
     setLinks((current) => {
@@ -135,11 +158,61 @@ export default function AssignmentsPage() {
     await loadData();
   }
 
+  async function clearAssignments() {
+    if (!periodId) return;
+    const supabase = createClient();
+    const { count, error: resultError } = await supabase
+      .from("exam_results")
+      .select("id", { count: "exact", head: true })
+      .eq("exam_period_id", periodId);
+    if (resultError) {
+      setMessage(resultError.message);
+      return;
+    }
+    if (count) {
+      setMessage("Exam results already exist. Examiner assignments cannot be cleared during the exam.");
+      return;
+    }
+    if (!window.confirm("Clear all Examiner assignments for this examination session? Ustaz connections will not be changed.")) return;
+    setSavingKey("clear-assignments");
+    const { error } = await supabase
+      .from("examiner_assignments")
+      .delete()
+      .eq("exam_period_id", periodId);
+    setSavingKey(null);
+    if (error) {
+      setMessage(error.message);
+      return;
+    }
+    setSelectedStudentIds([]);
+    setMessage("All Examiner assignments were cleared. Ustaz connections were kept.");
+    await loadData();
+  }
+
+  function downloadSeatingList() {
+    const studentByRegistrationId = new Map(students.map((student) => [student.registrationId, student]));
+    const examinerSections = examiners.map((examiner) => {
+      const assignedStudents = assignments
+        .filter((assignment) => assignment.examiner_id === examiner.id)
+        .map((assignment) => studentByRegistrationId.get(assignment.student_registration_id))
+        .filter((student): student is Student => Boolean(student))
+        .sort((first, second) => first.name.localeCompare(second.name));
+      if (!assignedStudents.length) return "";
+      return `<section><h2>${escapeHtml(examiner.full_name)}</h2><ol>${assignedStudents.map((student) => `<li>${escapeHtml(student.name)}</li>`).join("")}</ol></section>`;
+    }).filter(Boolean).join("");
+
+    if (!examinerSections) { setMessage("Assign students to an Examiner before downloading the seating list."); return; }
+    const printWindow = window.open("", "examiner-seating-list", "width=1500,height=900");
+    if (!printWindow) { setMessage("Allow pop-ups to download the seating list PDF."); return; }
+    printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Examiner seating list</title><style>@page{size:A3 landscape;margin:10mm}body{font-family:Arial,sans-serif;color:#17231e;margin:0}h1{text-align:center;font-size:22px;margin:0 0 2px}p{text-align:center;margin:0 0 10px;color:#52645b;font-size:11px}.list{columns:4;column-gap:12mm}section{break-inside:avoid;page-break-inside:avoid;margin:0 0 8px;border-bottom:1px solid #bfd0c5;padding-bottom:5px}h2{font-size:13px;color:#176b4e;margin:0 0 3px}ol{margin:0;padding-left:20px;font-size:9px;line-height:1.35}li{padding:0;margin:0}</style></head><body><h1>مركز علي الحيدر</h1><p>Examiner seating list</p><main class="list">${examinerSections}</main><script>window.onload=function(){window.print();}</script></body></html>`);
+    printWindow.document.close();
+  }
+
   function connectedPicker(examinerId: string) {
     if (!examinerId) return null;
     const selected = linkedIds(examinerId);
     const available = ustazes.filter((ustaz) => !selected.includes(ustaz.id));
-    return <fieldset className="connected-ustaz-picker"><legend>Connected Ustazes - their students are blocked</legend><div className="connected-ustaz-add"><select value="" onChange={(event) => { if (event.target.value) toggleUstaz(examinerId, event.target.value); }}><option value="">Add a Ustaz...</option>{available.map((ustaz) => <option key={ustaz.id} value={ustaz.id}>{ustaz.full_name}</option>)}</select></div><div className="connected-ustaz-chips">{selected.map((ustazId) => <span className="connected-ustaz-chip" key={ustazId}>{ustazes.find((ustaz) => ustaz.id === ustazId)?.full_name ?? "Ustaz"}<button type="button" aria-label="Remove connected Ustaz" onClick={() => toggleUstaz(examinerId, ustazId)}>Ã—</button></span>)}{!selected.length && <small>No connected Ustazes selected.</small>}</div></fieldset>;
+    return <>{examinerId === examiners[0]?.id && <><button className="secondary-button" type="button" onClick={downloadSeatingList}>Download seating list PDF</button><button className="secondary-button" type="button" onClick={() => void clearAssignments()} disabled={savingKey === "clear-assignments"}>{savingKey === "clear-assignments" ? "Clearing..." : "Clear Examiner assignments"}</button></>}<fieldset className="connected-ustaz-picker"><legend>Connected Ustazes - their students are blocked</legend><div className="connected-ustaz-add"><select value="" onChange={(event) => { if (event.target.value) toggleUstaz(examinerId, event.target.value); }}><option value="">Add a Ustaz...</option>{available.map((ustaz) => <option key={ustaz.id} value={ustaz.id}>{ustaz.full_name}</option>)}</select></div><div className="connected-ustaz-chips">{selected.map((ustazId) => <span className="connected-ustaz-chip" key={ustazId}>{ustazes.find((ustaz) => ustaz.id === ustazId)?.full_name ?? "Ustaz"}<button type="button" aria-label="Remove connected Ustaz" onClick={() => toggleUstaz(examinerId, ustazId)}>Ã—</button></span>)}{!selected.length && <small>No connected Ustazes selected.</small>}</div></fieldset></>;
   }
 
   return <AdminShell active="assignments"><header className="workspace-header"><div><p className="eyebrow">EXAM ADMIN - PHASE 2</p><h1>Examiner assignments</h1><p>Select every Ustaz connected to an Examiner. The Examiner will never receive students from those Ustazes.</p></div><div className="workspace-step"><span>2</span><div><strong>Assignment</strong><small>{assignments.length} students assigned</small></div></div></header>{message && <p className="admin-message">{message}</p>}<section className="admin-card examiner-connections"><div className="card-title"><div><h2>Examiner connections</h2><p>Set blocked Ustazes once. These connections apply to all seven ranges and all Big-student groups.</p></div></div><div className="examiner-connection-list">{examiners.map((examiner) => <article className="examiner-connection-row" key={examiner.id}><strong>{examiner.full_name}</strong>{connectedPicker(examiner.id)}<button className="secondary-button" type="button" onClick={() => void saveConnectionOnly(examiner.id)} disabled={savingKey === "connection:" + examiner.id}>{savingKey === "connection:" + examiner.id ? "Saving..." : "Save connection"}</button></article>)}</div></section><section className="assignment-groups">{groups.map((group) => { const examinerId = selectedExaminers[group.id] ?? ""; const range = rangeStudents(group); const conflicts = range.filter((student) => linkedIds(examinerId).includes(student.ustazId)); return <article className="admin-card assignment-group" key={group.id}><div className="card-title"><div><h2>{group.group_title}</h2><p>Places {group.place_start}-{group.place_end} - {range.length} students</p></div></div><label>Examiner account<select value={examinerId} onChange={(event) => setSelectedExaminers((current) => ({ ...current, [group.id]: event.target.value }))}><option value="">Select Examiner</option>{examiners.map((examiner) => <option key={examiner.id} value={examiner.id}>{examiner.full_name}</option>)}</select></label><button className="primary-button" type="button" onClick={() => void assignRange(group)} disabled={savingKey === group.id}>{savingKey === group.id ? "Assigning..." : "Save connections and assign range"}</button>{conflicts.length > 0 && <div className="assignment-conflict"><strong>Manual action needed</strong><span>{conflicts.length} student(s) belong to selected Ustazes and will remain unassigned.</span></div>}</article>; })}</section><h2 className="assignment-section-title">Big-student groups</h2><section className="assignment-groups">{bigUstazIds.map((ownerId) => { const bigStudents = students.filter((student) => student.ustazId === ownerId); const examinerId = selectedExaminers["big:" + ownerId] ?? ""; return <article className="admin-card assignment-group big-group" key={ownerId}><div className="card-title"><div><h2>Big - {ustazes.find((ustaz) => ustaz.id === ownerId)?.full_name ?? "Ustaz"}</h2><p>{bigStudents.length} students kept separate</p></div></div><label>Examiner account<select value={examinerId} onChange={(event) => setSelectedExaminers((current) => ({ ...current, ["big:" + ownerId]: event.target.value }))}><option value="">Select Examiner</option>{examiners.map((examiner) => <option key={examiner.id} value={examiner.id}>{examiner.full_name}</option>)}</select></label><button className="primary-button" type="button" onClick={() => void assignBig(ownerId, bigStudents)} disabled={savingKey === "big:" + ownerId}>{savingKey === "big:" + ownerId ? "Assigning..." : "Save connections and assign Big group"}</button></article>; })}</section><section className="admin-card manual-assignment"><div className="card-title"><div><h2>Manual reassignment</h2><p>Students left unassigned because of the ownership rule.</p></div><strong>{unassignedStudents.length} unassigned</strong></div><label>Examiner account<select value={manualExaminerId} onChange={(event) => setManualExaminerId(event.target.value)}><option value="">Select Examiner</option>{examiners.map((examiner) => <option key={examiner.id} value={examiner.id}>{examiner.full_name}</option>)}</select></label><button className="primary-button" type="button" onClick={() => void assignManual()} disabled={savingKey === "manual"}>Assign selected</button><div className="assignment-list">{unassignedStudents.map((student) => <label className="assignment-student" key={student.registrationId}><input type="checkbox" checked={selectedStudentIds.includes(student.registrationId)} onChange={() => setSelectedStudentIds((current) => current.includes(student.registrationId) ? current.filter((id) => id !== student.registrationId) : [...current, student.registrationId])} /><span><strong>{student.name}</strong><small>{student.number} - Ustaz: {student.ustazName} - place {student.place}</small></span></label>)}</div></section></AdminShell>;

@@ -34,7 +34,9 @@ type ResultRow = {
   makhraj_scores: number[];
   examiner_comment: string | null;
   revision_place: number | null;
+  revision_track: "alif" | "quran" | "qaida" | "admin" | null;
 };
+type RevisionTrack = "alif" | "quran" | "qaida" | "admin";
 
 const alifQuestion = (): Question => ({ fluency: 0, speed: 0, hesitation: 0 });
 const quranQuestion = (): Question => ({
@@ -187,6 +189,13 @@ function resultPreview(total: number) {
   };
 }
 
+function revisionTrackFor(student: StudentInfo, total: number, selected: RevisionTrack | "") {
+  if (total >= 80) return "";
+  if (total < 40) return student.level === "alif" ? "qaida" : "admin";
+  if (total >= 60 && student.level === "alif") return "alif";
+  return selected;
+}
+
 export default function MarkStudentPage() {
   const { assignmentId } = useParams<{ assignmentId: string }>();
   const router = useRouter();
@@ -196,6 +205,7 @@ export default function MarkStudentPage() {
   const [makhrajScores, setMakhrajScores] = useState<number[]>([]);
   const [comment, setComment] = useState("");
   const [revisionPlace, setRevisionPlace] = useState("");
+  const [revisionTrack, setRevisionTrack] = useState<RevisionTrack | "">("");
   const [activeRound, setActiveRound] = useState(0);
   const [message, setMessage] = useState("የተማሪውን መረጃ በመጫን ላይ…");
   const [saving, setSaving] = useState(false);
@@ -210,6 +220,9 @@ export default function MarkStudentPage() {
   );
   const questionTotal = Math.max(0, total - makhrajTotal);
   const preview = resultPreview(total);
+  const activeRevisionTrack = student
+    ? revisionTrackFor(student, total, revisionTrack)
+    : "";
 
   useEffect(() => {
     async function load() {
@@ -260,7 +273,7 @@ export default function MarkStudentPage() {
       const { data: existing, error: resultError } = await supabase
         .from("exam_results")
         .select(
-          "id, round_scores, makhraj_scores, examiner_comment, revision_place"
+          "id, round_scores, makhraj_scores, examiner_comment, revision_place, revision_track"
         )
         .eq("examiner_assignment_id", assignmentId)
         .maybeSingle();
@@ -300,6 +313,7 @@ export default function MarkStudentPage() {
       setRevisionPlace(
         saved?.revision_place ? String(saved.revision_place) : ""
       );
+      setRevisionTrack(saved?.revision_track ?? "");
       setMessage("");
     }
 
@@ -341,13 +355,14 @@ export default function MarkStudentPage() {
   async function save(status: "draft" | "submitted") {
     if (!student) return;
     const currentTotal = totalFor(roundScores, makhrajScores, student.rounds);
-    if (
-      status === "submitted" &&
-      currentTotal >= 60 &&
-      currentTotal < 80 &&
-      !revisionPlace
-    ) {
-      setMessage("የ2ኛ ደረጃ የሚደገምበትን ፈሰል ይምረጡ።");
+    const selectedTrack = revisionTrackFor(student, currentTotal, revisionTrack);
+    const needsPlace = selectedTrack === "alif" || selectedTrack === "quran";
+    if (status === "submitted" && currentTotal >= 60 && currentTotal < 80 && !selectedTrack) {
+      setMessage("እባክዎ የሚከለስበትን መንገድ ይምረጡ።");
+      return;
+    }
+    if (status === "submitted" && currentTotal >= 40 && currentTotal < 80 && needsPlace && !revisionPlace) {
+      setMessage("እባክዎ የሚከለስበትን ቦታ ይምረጡ።");
       return;
     }
     setSaving(true);
@@ -382,7 +397,8 @@ export default function MarkStudentPage() {
       round_scores: roundScores,
       makhraj_scores: makhrajScores,
       examiner_comment: comment.trim() || null,
-      revision_place: revisionPlace ? Number(revisionPlace) : null,
+      revision_place: needsPlace && revisionPlace ? Number(revisionPlace) : null,
+      revision_track: selectedTrack || null,
       status,
     };
     const request = resultId
@@ -652,22 +668,48 @@ export default function MarkStudentPage() {
       </section>
 
       <section className="admin-card examiner-comment">
-        {total >= 60 && total < 80 && (
+        {total >= 40 && total < 80 && (student.level === "quran" || total < 60) && (
           <label>
-            የሚደገምበት ፈሰል
+            የሚከለሰው ወደ ቁርአን ነው ወይስ ወደ አሊፍ?
             <select
-              value={revisionPlace}
-              onChange={(event) => setRevisionPlace(event.target.value)}
+              value={revisionTrack === "admin" ? "" : revisionTrack}
+              onChange={(event) => {
+                setRevisionTrack((event.target.value || "") as RevisionTrack | "");
+                setRevisionPlace("");
+              }}
             >
-              <option value="">ፈሰል ይምረጡ</option>
-              {alifFesels.map((fesel, index) => (
-                <option key={index} value={index + 1}>
-                  ፈሰል {index + 1} · {fesel}
-                </option>
-              ))}
+              <option value="">ይምረጡ</option>
+              <option value="quran">ቁርአን</option>
+              <option value="alif">አሊፍ</option>
+              {total < 60 && <option value="qaida">ከቃኢዳ ኑራኒያ ከመጀመሪያው ይጀምር</option>}
             </select>
           </label>
         )}
+        {total >= 60 && total < 80 && student.level === "alif" && (
+          <p className="form-help">የአሊፍ ተማሪ ስለሆነ ክለሳው ከአሊፍ ፈሰል ይመረጣል።</p>
+        )}
+        {total >= 40 && total < 80 && activeRevisionTrack === "alif" && (
+          <label>
+            የሚከለስበት የአሊፍ ፈሰል
+            <select value={revisionPlace} onChange={(event) => setRevisionPlace(event.target.value)}>
+              <option value="">ፈሰል ይምረጡ</option>
+              {alifFesels.map((fesel, index) => <option key={index} value={index + 1}>ፈሰል {index + 1} · {fesel}</option>)}
+            </select>
+          </label>
+        )}
+        {total >= 40 && total < 80 && activeRevisionTrack === "quran" && (
+          <label>
+            የሚከለስበት የቁርአን ሱራ
+            <select value={revisionPlace} onChange={(event) => setRevisionPlace(event.target.value)}>
+              <option value="">ሱራ ይምረጡ</option>
+              {surahs.slice(0, Math.max(0, student.place - 1)).map((surah, index) => <option key={index} value={index + 1}>{index + 1} · {surah}</option>)}
+            </select>
+          </label>
+        )}
+        {total >= 40 && total < 60 && activeRevisionTrack === "qaida" && <p className="form-help">ከቃኢዳ ኑራኒያ ከመጀመሪያው ይጀምር።</p>}
+        {total < 40 && student.level === "alif" && <p className="form-help">ከቃኢዳ ኑራኒያ ከመጀመሪያው ይጀምር።</p>}
+        {total < 40 && student.level === "quran" && <p className="form-help">የሚከለስበት ቦታ በበላይ አካል የሚወሰን ይሆናል።</p>}
+        {total >= 80 && <p className="form-help">1ኛ ደረጃ፤ አልፏል። ክለሳ አያስፈልግም።</p>}
         <label>
           የፈታኙ አስተያየት
           <textarea
@@ -684,7 +726,7 @@ export default function MarkStudentPage() {
             disabled={saving}
             onClick={() => void save("draft")}
           >
-            ለበኋላ አስቀምጥ
+            ለበኋላnp አስቀምጥ
           </button>
           <button
             className="primary-button"
