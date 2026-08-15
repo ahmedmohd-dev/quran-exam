@@ -80,11 +80,7 @@ export default function AssignmentsPage() {
     const ustazIds = linkedIds(examinerId);
     if (!ustazIds.length) { setMessage("Select at least one connected Ustaz."); return false; }
     const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setMessage("Your admin session has expired. Please sign in again."); return false; }
-    const { error: deleteError } = await supabase.from("examiner_ustaz_links").delete().eq("examiner_id", examinerId);
-    if (deleteError) { setMessage(deleteError.message); return false; }
-    const { error } = await supabase.from("examiner_ustaz_links").insert(ustazIds.map((ustazId) => ({ examiner_id: examinerId, ustaz_id: ustazId, created_by: user.id })));
+    const { error } = await supabase.rpc("save_examiner_ustaz_links", { p_examiner_id: examinerId, p_ustaz_ids: ustazIds });
     if (error) { setMessage(error.message); return false; }
     return true;
   }
@@ -94,7 +90,7 @@ export default function AssignmentsPage() {
     const saved = await saveConnections(examinerId);
     setSavingKey(null);
     if (saved) {
-      setMessage("Examiner connections saved. These blocked Ustazes apply to every regular and Big-student group.");
+      setMessage("Examiner connection saved. Any selected Ustaz previously connected elsewhere was moved here.");
       await loadData();
     }
   }
