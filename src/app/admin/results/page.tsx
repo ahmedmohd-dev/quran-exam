@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/admin-shell";
 import { createClient } from "@/lib/supabase/client";
 import { alifFesels } from "@/lib/alif-fesels";
+import { surahs } from "@/lib/surahs";
 
 type Result = { id: string; examiner_assignment_id: string; status: "draft" | "submitted"; total_mark: number; result_class: string; revision_place: number | null; revision_track: "alif" | "quran" | "qaida" | "admin" | null; examiner_comment: string | null; examiner: { full_name: string } | null; assignment: { student_registration: { student: { full_name: string } | null } | null } | null };
 
@@ -43,7 +44,7 @@ export default function AdminResultsPage() {
   function revisionName(result: Result) {
     if (result.revision_track === "qaida") return "ከቃኢዳ ኑራኒያ መጀመሪያ";
     if (result.revision_track === "admin") return "በበላይ አካል ይወሰናል";
-    if (result.revision_track === "quran") return result.revision_place ? `ቁርአን · ${result.revision_place}` : "ቁርአን";
+    if (result.revision_track === "quran") return result.revision_place ? `ቁርአን · ${result.revision_place} · ${surahs[result.revision_place - 1] ?? ""}` : "ቁርአን";
     return result.revision_place ? `አሊፍ · ፈሰል ${result.revision_place} · ${alifFesels[result.revision_place - 1] ?? ""}` : "—";
   }
 

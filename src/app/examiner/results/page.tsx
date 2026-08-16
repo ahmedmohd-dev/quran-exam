@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ExaminerShell } from "@/components/examiner-shell";
 import { createClient } from "@/lib/supabase/client";
+import { alifFesels } from "@/lib/alif-fesels";
+import { surahs } from "@/lib/surahs";
 
 type StudentAssignment = {
   id: string;
@@ -17,6 +19,8 @@ type ResultRow = {
   result_class: string;
   status: string;
   examiner_comment: string | null;
+  revision_track: "alif" | "quran" | "qaida" | "admin" | null;
+  revision_place: number | null;
 };
 
 type SupplementalRow = {
@@ -32,6 +36,16 @@ function resultClassLabel(value: string) {
     third: "3ተኛ ደረጃ",
     fourth: "4ተኛ ደረጃ",
   } as Record<string, string>)[value] ?? value;
+}
+
+function revisionLabel(result: ResultRow) {
+  if (result.revision_track === "qaida") return "ከቃኢዳ ኑራኒያ ከመጀመሪያው";
+  if (result.revision_track === "admin") return "በበላይ አካል ይወሰናል";
+  if (!result.revision_place) return "አልተመረጠም";
+  if (result.revision_track === "quran") {
+    return `ቁርአን · ${result.revision_place} · ${surahs[result.revision_place - 1] ?? ""}`;
+  }
+  return `አሊፍ · ፈሰል ${result.revision_place} · ${alifFesels[result.revision_place - 1] ?? ""}`;
 }
 
 export default function ExaminerResultsPage() {
@@ -64,7 +78,7 @@ export default function ExaminerResultsPage() {
         assignmentIds.length
           ? supabase
               .from("exam_results")
-              .select("id,examiner_assignment_id,total_mark,result_class,status,examiner_comment")
+              .select("id,examiner_assignment_id,total_mark,result_class,status,examiner_comment,revision_track,revision_place")
               .in("examiner_assignment_id", assignmentIds)
           : Promise.resolve({ data: [], error: null }),
         assignmentIds.length
@@ -109,6 +123,7 @@ export default function ExaminerResultsPage() {
                 <small>Hisnul Muslim: {Number(extra?.hisnul_muslim_mark ?? 0).toFixed(2)} / 20</small>
                 <small>Homework: {Number(extra?.homework_mark ?? 0).toFixed(2)} / 5</small>
                 {quran && <strong>Class: {resultClassLabel(quran.result_class)}</strong>}
+                {quran && <small>የሚከለስበት ቦታ: {revisionLabel(quran)}</small>}
                 {quran?.examiner_comment && <small>{quran.examiner_comment}</small>}
               </div>
               <span className={`tag ${quran?.status === "submitted" ? "complete" : "pending"}`}>

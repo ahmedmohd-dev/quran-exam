@@ -179,17 +179,46 @@ function totalFor(
   return questionTotal + makhrajTotal;
 }
 
-function resultPreview(total: number) {
+function resultPreview(
+  total: number,
+  student: StudentInfo | null,
+  revisionTrack: RevisionTrack | "",
+  revisionPlace: string
+) {
   if (total >= 80) return { label: "1ኛ ደረጃ · አልፏል", action: "ክለሳ አያስፈልግም" };
-  if (total >= 60)
-    return { label: "2ኛ ደረጃ", action: "ኡስታዙ የሚከለስበትን ፈሰል ይመርጣል" };
-  return {
-    label: total >= 40 ? "3ኛ ደረጃ" : "4ኛ ደረጃ",
-    action: "ከቃዒዳ ኑራኒያ መጀመሪያ ጀምሮ ይከለስ",
-  };
+  const label = total >= 60 ? "2ኛ ደረጃ" : total >= 40 ? "3ኛ ደረጃ" : "4ኛ ደረጃ";
+  if (total < 40) {
+    return {
+      label,
+      action:
+        student?.level === "alif"
+          ? "ከቃዒዳ ኑራኒያ መጀመሪያ ጀምሮ ይከለስ"
+          : "የሚከለስበት ቦታ በበላይ አካል ይወሰናል",
+    };
+  }
+  if (revisionTrack === "qaida")
+    return { label, action: "ከቃዒዳ ኑራኒያ ከመጀመሪያው ይጀምር" };
+  if (revisionTrack === "admin")
+    return { label, action: "የሚከለስበት ቦታ በበላይ አካል ይወሰናል" };
+  if (revisionTrack === "quran" && revisionPlace) {
+    const place = Number(revisionPlace);
+    return { label, action: `ቁርአን · ${place} · ${surahs[place - 1] ?? ""}` };
+  }
+  if (revisionTrack === "alif" && revisionPlace) {
+    const place = Number(revisionPlace);
+    return {
+      label,
+      action: `አሊፍ · ፈሰል ${place} · ${alifFesels[place - 1] ?? ""}`,
+    };
+  }
+  return { label, action: "የክለሳ ቦታ ይምረጡ" };
 }
 
-function revisionTrackFor(student: StudentInfo, total: number, selected: RevisionTrack | "") {
+function revisionTrackFor(
+  student: StudentInfo,
+  total: number,
+  selected: RevisionTrack | ""
+) {
   if (total >= 80) return "";
   if (total < 40) return student.level === "alif" ? "qaida" : "admin";
   if (total >= 60 && student.level === "alif") return "alif";
@@ -209,6 +238,7 @@ export default function MarkStudentPage() {
   const [activeRound, setActiveRound] = useState(0);
   const [message, setMessage] = useState("የተማሪውን መረጃ በመጫን ላይ…");
   const [saving, setSaving] = useState(false);
+  const [showSubmitDialog, setShowSubmitDialog] = useState(false);
 
   const total = useMemo(
     () => (student ? totalFor(roundScores, makhrajScores, student.rounds) : 0),
@@ -219,10 +249,15 @@ export default function MarkStudentPage() {
     0
   );
   const questionTotal = Math.max(0, total - makhrajTotal);
-  const preview = resultPreview(total);
   const activeRevisionTrack = student
     ? revisionTrackFor(student, total, revisionTrack)
     : "";
+  const preview = resultPreview(
+    total,
+    student,
+    activeRevisionTrack,
+    revisionPlace
+  );
 
   useEffect(() => {
     async function load() {
@@ -355,13 +390,28 @@ export default function MarkStudentPage() {
   async function save(status: "draft" | "submitted") {
     if (!student) return;
     const currentTotal = totalFor(roundScores, makhrajScores, student.rounds);
-    const selectedTrack = revisionTrackFor(student, currentTotal, revisionTrack);
+    const selectedTrack = revisionTrackFor(
+      student,
+      currentTotal,
+      revisionTrack
+    );
     const needsPlace = selectedTrack === "alif" || selectedTrack === "quran";
-    if (status === "submitted" && currentTotal >= 60 && currentTotal < 80 && !selectedTrack) {
-      setMessage("እባክዎ የሚከለስበትን መንገድ ይምረጡ።");
+    if (
+      status === "submitted" &&
+      currentTotal >= 60 &&
+      currentTotal < 80 &&
+      !selectedTrack
+    ) {
+      setMessage("ውጤት ከማስገባትዎ በፊት የሚከለስበትን ቦታ ይምረጡ!");
       return;
     }
-    if (status === "submitted" && currentTotal >= 40 && currentTotal < 80 && needsPlace && !revisionPlace) {
+    if (
+      status === "submitted" &&
+      currentTotal >= 40 &&
+      currentTotal < 80 &&
+      needsPlace &&
+      !revisionPlace
+    ) {
       setMessage("እባክዎ የሚከለስበትን ቦታ ይምረጡ።");
       return;
     }
@@ -397,7 +447,8 @@ export default function MarkStudentPage() {
       round_scores: roundScores,
       makhraj_scores: makhrajScores,
       examiner_comment: comment.trim() || null,
-      revision_place: needsPlace && revisionPlace ? Number(revisionPlace) : null,
+      revision_place:
+        needsPlace && revisionPlace ? Number(revisionPlace) : null,
       revision_track: selectedTrack || null,
       status,
     };
@@ -420,6 +471,7 @@ export default function MarkStudentPage() {
       return;
     }
     setResultId(data.id);
+    if (status === "submitted") setShowSubmitDialog(false);
     setMessage(
       status === "submitted"
         ? `ውጤቱ ተልኳል። ጠቅላላ ውጤት: ${data.total_mark}/100`
@@ -668,48 +720,6 @@ export default function MarkStudentPage() {
       </section>
 
       <section className="admin-card examiner-comment">
-        {total >= 40 && total < 80 && (student.level === "quran" || total < 60) && (
-          <label>
-            የሚከለሰው ወደ ቁርአን ነው ወይስ ወደ አሊፍ?
-            <select
-              value={revisionTrack === "admin" ? "" : revisionTrack}
-              onChange={(event) => {
-                setRevisionTrack((event.target.value || "") as RevisionTrack | "");
-                setRevisionPlace("");
-              }}
-            >
-              <option value="">ይምረጡ</option>
-              <option value="quran">ቁርአን</option>
-              <option value="alif">አሊፍ</option>
-              {total < 60 && <option value="qaida">ከቃኢዳ ኑራኒያ ከመጀመሪያው ይጀምር</option>}
-            </select>
-          </label>
-        )}
-        {total >= 60 && total < 80 && student.level === "alif" && (
-          <p className="form-help">የአሊፍ ተማሪ ስለሆነ ክለሳው ከአሊፍ ፈሰል ይመረጣል።</p>
-        )}
-        {total >= 40 && total < 80 && activeRevisionTrack === "alif" && (
-          <label>
-            የሚከለስበት የአሊፍ ፈሰል
-            <select value={revisionPlace} onChange={(event) => setRevisionPlace(event.target.value)}>
-              <option value="">ፈሰል ይምረጡ</option>
-              {alifFesels.map((fesel, index) => <option key={index} value={index + 1}>ፈሰል {index + 1} · {fesel}</option>)}
-            </select>
-          </label>
-        )}
-        {total >= 40 && total < 80 && activeRevisionTrack === "quran" && (
-          <label>
-            የሚከለስበት የቁርአን ሱራ
-            <select value={revisionPlace} onChange={(event) => setRevisionPlace(event.target.value)}>
-              <option value="">ሱራ ይምረጡ</option>
-              {surahs.slice(0, Math.max(0, student.place - 1)).map((surah, index) => <option key={index} value={index + 1}>{index + 1} · {surah}</option>)}
-            </select>
-          </label>
-        )}
-        {total >= 40 && total < 60 && activeRevisionTrack === "qaida" && <p className="form-help">ከቃኢዳ ኑራኒያ ከመጀመሪያው ይጀምር።</p>}
-        {total < 40 && student.level === "alif" && <p className="form-help">ከቃኢዳ ኑራኒያ ከመጀመሪያው ይጀምር።</p>}
-        {total < 40 && student.level === "quran" && <p className="form-help">የሚከለስበት ቦታ በበላይ አካል የሚወሰን ይሆናል።</p>}
-        {total >= 80 && <p className="form-help">1ኛ ደረጃ፤ አልፏል። ክለሳ አያስፈልግም።</p>}
         <label>
           የፈታኙ አስተያየት
           <textarea
@@ -726,18 +736,74 @@ export default function MarkStudentPage() {
             disabled={saving}
             onClick={() => void save("draft")}
           >
-            ለበኋላnp አስቀምጥ
+            ለበኋላ አስቀምጥ
           </button>
           <button
             className="primary-button"
             type="button"
             disabled={saving}
-            onClick={() => void save("submitted")}
+            onClick={() => setShowSubmitDialog(true)}
           >
-            {saving ? "በማስቀመጥ ላይ…" : "ውጤት አስገባ"}
+            ውጤት አስገባ
           </button>
         </div>
       </section>
+      {showSubmitDialog && (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal submit-review-modal" role="dialog" aria-modal="true" aria-labelledby="submit-review-title">
+            <div className="modal-heading">
+              <div>
+                <h2 id="submit-review-title">ውጤቱን ያረጋግጡ</h2>
+                <p className="form-help">ውጤቱን ከማስገባትዎ በፊት የክለሳ ምርጫውን ይሙሉ።</p>
+              </div>
+              <button className="close" type="button" onClick={() => setShowSubmitDialog(false)}>×</button>
+            </div>
+            <div className="submit-review-summary">
+              <div><span>የጥያቄ ውጤት</span><strong>{questionTotal.toFixed(2)} /80%</strong></div>
+              <div><span>መኸረጅ እና ሲፋ</span><strong>{makhrajTotal} /20%</strong></div>
+              <div><span>ጠቅላላ</span><strong>{total.toFixed(2)} /100%</strong></div>
+              <div><span>ደረጃ</span><strong>{preview.label}</strong></div>
+            </div>
+            {total >= 40 && total < 80 && (student.level === "quran" || total < 60) && (
+              <label>
+                የሚከለሰው ወደ ቁርአን ነው ወይስ ወደ አሊፍ?
+                <select value={revisionTrack === "admin" ? "" : revisionTrack} onChange={(event) => { setRevisionTrack((event.target.value || "") as RevisionTrack | ""); setRevisionPlace(""); }}>
+                  <option value="">ይምረጡ</option>
+                  <option value="quran">ቁርአን</option>
+                  <option value="alif">አሊፍ</option>
+                  {total < 60 && <option value="qaida">ከቃኢዳ ኑራኒያ ከመጀመሪያው ይጀምር</option>}
+                </select>
+              </label>
+            )}
+            {total >= 60 && total < 80 && student.level === "alif" && <p className="form-help">የአሊፍ ተማሪ ስለሆነ ክለሳው ከአሊፍ ፈሰል ይመረጣል።</p>}
+            {total >= 40 && total < 80 && activeRevisionTrack === "alif" && (
+              <label>
+                የሚከለስበት የአሊፍ ፈሰል
+                <select value={revisionPlace} onChange={(event) => setRevisionPlace(event.target.value)}>
+                  <option value="">ፈሰል ይምረጡ</option>
+                  {alifFesels.map((fesel, index) => <option key={index} value={index + 1}>ፈሰል {index + 1} · {fesel}</option>)}
+                </select>
+              </label>
+            )}
+            {total >= 40 && total < 80 && activeRevisionTrack === "quran" && (
+              <label>
+                የሚከለስበት የቁርአን ሱራ
+                <select value={revisionPlace} onChange={(event) => setRevisionPlace(event.target.value)}>
+                  <option value="">ሱራ ይምረጡ</option>
+                  {surahs.map((surah, index) => <option key={index} value={index + 1}>{index + 1} · {surah}</option>)}
+                </select>
+              </label>
+            )}
+            {total >= 40 && total < 60 && activeRevisionTrack === "qaida" && <p className="form-help">ከቃኢዳ ኑራኒያ ከመጀመሪያው ይጀምር።</p>}
+            {total < 40 && student.level === "alif" && <p className="form-help">ከቃኢዳ ኑራኒያ ከመጀመሪያው ይጀምር።</p>}
+            {total < 40 && student.level === "quran" && <p className="form-help">የሚከለስበት ቦታ በበላይ አካል የሚወሰን ይሆናል።</p>}
+            <div className="modal-actions">
+              <button className="secondary-button" type="button" onClick={() => setShowSubmitDialog(false)}>ተመለስ</button>
+              <button className="primary-button" type="button" disabled={saving} onClick={() => void save("submitted")}>{saving ? "በማስቀመጥ ላይ…" : "እርግጠኛ ነኝ · ውጤት አስገባ"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </ExaminerShell>
   );
 }

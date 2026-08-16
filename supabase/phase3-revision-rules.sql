@@ -27,16 +27,16 @@ begin
     new.revision_place := null;
   elsif new.status = 'submitted' then
     if new.revision_track is null then
-      raise exception 'Choose the revision destination before submitting.';
+      raise exception 'ውጤት ከማስገባትዎ በፊት የሚከለስበትን ቦታ ይምረጡ!';
     end if;
     if new.revision_track in ('alif', 'quran') and new.revision_place is null then
-      raise exception 'Choose the revision place before submitting.';
+      raise exception 'ውጤት ከማስገባትዎ በፊት የሚከለስበትን ቦታ ይምረጡ!';
     end if;
     if new.revision_track = 'alif' and (new.revision_place < 1 or new.revision_place > 27) then
       raise exception 'Alif revision place must be between 1 and 27.';
     end if;
-    if new.revision_track = 'quran' and (new.revision_place < 1 or new.revision_place >= (select current_learning_place::integer from public.student_registrations where id = new.student_registration_id)) then
-      raise exception 'Qur’an revision must be below the registered surah.';
+    if new.revision_track = 'quran' and (new.revision_place < 1 or new.revision_place > 114) then
+      raise exception 'Qur’an revision place must be between 1 and 114.';
     end if;
   end if;
   return new;
