@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ExaminerShell } from "@/components/examiner-shell";
 import { createClient } from "@/lib/supabase/client";
@@ -222,6 +222,7 @@ function revisionTrackFor(
   if (total >= 80) return "";
   if (total < 40) return student.level === "alif" ? "qaida" : "admin";
   if (total >= 60 && student.level === "alif") return "alif";
+  if (selected === "admin") return "";
   return selected;
 }
 
@@ -238,7 +239,11 @@ export default function MarkStudentPage() {
   const [activeRound, setActiveRound] = useState(0);
   const [message, setMessage] = useState("የተማሪውን መረጃ በመጫን ላይ…");
   const [saving, setSaving] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState("");
   const [showSubmitDialog, setShowSubmitDialog] = useState(false);
+  const changeVersion = useRef(0);
 
   const total = useMemo(
     () => (student ? totalFor(roundScores, makhrajScores, student.rounds) : 0),
@@ -350,10 +355,17 @@ export default function MarkStudentPage() {
       );
       setRevisionTrack(saved?.revision_track ?? "");
       setMessage("");
+      setHasLoaded(true);
     }
 
     void load();
   }, [assignmentId]);
+
+  function markDirty() {
+    changeVersion.current += 1;
+    setDirty(true);
+    setAutoSaveStatus("");
+  }
 
   function updateQuestion(
     roundIndex: number,
@@ -363,6 +375,7 @@ export default function MarkStudentPage() {
     maximum: number
   ) {
     const score = Math.max(0, Math.min(maximum, numberValue(value)));
+    markDirty();
     setRoundScores((current) =>
       current.map((round, index) =>
         index !== roundIndex
@@ -382,13 +395,14 @@ export default function MarkStudentPage() {
       0,
       Math.min(student.makhrajMaximums[activeRound], numberValue(value))
     );
+    markDirty();
     setMakhrajScores((current) =>
       current.map((item, index) => (index === activeRound ? score : item))
     );
   }
 
-  async function save(status: "draft" | "submitted") {
-    if (!student) return;
+  async function save(status: "draft" | "submitted", automatic = false) {
+    if (!student) return false;
     const currentTotal = totalFor(roundScores, makhrajScores, student.rounds);
     const selectedTrack = revisionTrackFor(
       student,
@@ -403,7 +417,7 @@ export default function MarkStudentPage() {
       !selectedTrack
     ) {
       setMessage("ውጤት ከማስገባትዎ በፊት የሚከለስበትን ቦታ ይምረጡ!");
-      return;
+      return false;
     }
     if (
       status === "submitted" &&
@@ -413,8 +427,9 @@ export default function MarkStudentPage() {
       !revisionPlace
     ) {
       setMessage("እባክዎ የሚከለስበትን ቦታ ይምረጡ።");
-      return;
+      return false;
     }
+    const saveVersion = changeVersion.current;
     setSaving(true);
     setMessage("");
     const supabase = createClient();
@@ -424,7 +439,7 @@ export default function MarkStudentPage() {
     if (!user) {
       setSaving(false);
       setMessage("እባክዎ በድጋሚ ይግቡ።");
-      return;
+      return false;
     }
 
     const { data: assignment, error: assignmentError } = await supabase
@@ -435,7 +450,7 @@ export default function MarkStudentPage() {
     if (assignmentError || !assignment) {
       setSaving(false);
       setMessage(assignmentError?.message ?? "የፈተና መረጃ አልተገኘም።");
-      return;
+      return false;
     }
 
     const payload = {
@@ -467,19 +482,69 @@ export default function MarkStudentPage() {
     const { data, error } = await request;
     setSaving(false);
     if (error) {
+      if (automatic) setAutoSaveStatus("ራስ-ሰር ማስቀመጥ አልተሳካም።");
       setMessage(error.message);
-      return;
+      return false;
     }
     setResultId(data.id);
+    if (changeVersion.current === saveVersion) setDirty(false);
     if (status === "submitted") setShowSubmitDialog(false);
-    setMessage(
+    if (automatic) {
+      setAutoSaveStatus("ራስ-ሰር ተቀምጧል።");
+      window.setTimeout(() => setAutoSaveStatus(""), 3500);
+    } else setMessage(
       status === "submitted"
         ? `ውጤቱ ተልኳል። ጠቅላላ ውጤት: ${data.total_mark}/100`
         : "ረቂቁ ተቀምጧል።"
     );
-    window.setTimeout(() => setMessage(""), 4000);
+    if (!automatic) window.setTimeout(() => setMessage(""), 4000);
     if (status === "submitted")
       window.setTimeout(() => router.push("/examiner/test"), 1200);
+    return true;
+  }
+
+  const saveRef = useRef<typeof save | null>(null);
+
+  useEffect(() => {
+    saveRef.current = save;
+  }, [save]);
+
+  useEffect(() => {
+    if (!hasLoaded || !dirty || saving || !student) return;
+    const timer = window.setTimeout(
+      () => void saveRef.current?.("draft", true),
+      1000
+    );
+    return () => window.clearTimeout(timer);
+  }, [
+    hasLoaded,
+    dirty,
+    saving,
+    student,
+    roundScores,
+    makhrajScores,
+    comment,
+    revisionPlace,
+    revisionTrack,
+  ]);
+
+  useEffect(() => {
+    if (!dirty) return;
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    return () => window.removeEventListener("beforeunload", warnBeforeLeaving);
+  }, [dirty]);
+
+  async function returnToStudents() {
+    if (saving) {
+      setMessage("ረቂቱ በመቀመጥ ላይ ነው። እባክዎ ይጠብቁ።");
+      return;
+    }
+    if (dirty && !(await save("draft", true))) return;
+    router.push("/examiner/test");
   }
 
   if (!student)
@@ -497,7 +562,14 @@ export default function MarkStudentPage() {
   return (
     <ExaminerShell>
       <header className="examiner-header">
-        <Link className="back-link" href="/examiner/test">
+        <Link
+          className="back-link"
+          href="/examiner/test"
+          onClick={(event) => {
+            event.preventDefault();
+            void returnToStudents();
+          }}
+        >
           ← ወደ ተማሪዎች
         </Link>
         <p className="eyebrow">የፈተና መመዝገቢያ</p>
@@ -724,7 +796,10 @@ export default function MarkStudentPage() {
           የፈታኙ አስተያየት
           <textarea
             value={comment}
-            onChange={(event) => setComment(event.target.value)}
+            onChange={(event) => {
+              markDirty();
+              setComment(event.target.value);
+            }}
             placeholder="ያዩትን ስህተት ወይም ማስታወሻ ይጻፉ።"
             rows={4}
           />
@@ -767,7 +842,7 @@ export default function MarkStudentPage() {
             {total >= 40 && total < 80 && (student.level === "quran" || total < 60) && (
               <label>
                 የሚከለሰው ወደ ቁርአን ነው ወይስ ወደ አሊፍ?
-                <select value={revisionTrack === "admin" ? "" : revisionTrack} onChange={(event) => { setRevisionTrack((event.target.value || "") as RevisionTrack | ""); setRevisionPlace(""); }}>
+                <select value={revisionTrack === "admin" ? "" : revisionTrack} onChange={(event) => { markDirty(); setRevisionTrack((event.target.value || "") as RevisionTrack | ""); setRevisionPlace(""); }}>
                   <option value="">ይምረጡ</option>
                   <option value="quran">ቁርአን</option>
                   <option value="alif">አሊፍ</option>
@@ -779,7 +854,7 @@ export default function MarkStudentPage() {
             {total >= 40 && total < 80 && activeRevisionTrack === "alif" && (
               <label>
                 የሚከለስበት የአሊፍ ፈሰል
-                <select value={revisionPlace} onChange={(event) => setRevisionPlace(event.target.value)}>
+                <select value={revisionPlace} onChange={(event) => { markDirty(); setRevisionPlace(event.target.value); }}>
                   <option value="">ፈሰል ይምረጡ</option>
                   {alifFesels.map((fesel, index) => <option key={index} value={index + 1}>ፈሰል {index + 1} · {fesel}</option>)}
                 </select>
@@ -788,7 +863,7 @@ export default function MarkStudentPage() {
             {total >= 40 && total < 80 && activeRevisionTrack === "quran" && (
               <label>
                 የሚከለስበት የቁርአን ሱራ
-                <select value={revisionPlace} onChange={(event) => setRevisionPlace(event.target.value)}>
+                <select value={revisionPlace} onChange={(event) => { markDirty(); setRevisionPlace(event.target.value); }}>
                   <option value="">ሱራ ይምረጡ</option>
                   {surahs.map((surah, index) => <option key={index} value={index + 1}>{index + 1} · {surah}</option>)}
                 </select>
@@ -803,6 +878,10 @@ export default function MarkStudentPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {autoSaveStatus && (
+        <p className="form-help autosave-status">{autoSaveStatus}</p>
       )}
     </ExaminerShell>
   );

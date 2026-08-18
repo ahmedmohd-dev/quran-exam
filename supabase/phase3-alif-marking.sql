@@ -114,7 +114,8 @@ begin
     if jsonb_typeof(round_item) <> 'array' or jsonb_array_length(round_item) <> 8 then raise exception 'Each round must have exactly 8 questions.'; end if;
     for question_index in 0..7 loop
       question_item := round_item -> question_index;
-      if expected_scheme in ('alif_quran_90_114', 'quran_67_89', 'quran_47_66', 'quran_36_46', 'quran_1_35') then
+      if expected_scheme in ('quran_67_89', 'quran_47_66', 'quran_36_46', 'quran_1_35')
+        or (expected_scheme = 'alif_quran_90_114' and round_index = 2) then
         score := coalesce((question_item ->> 'mistakes')::numeric, 0); if score < 0 or score > 5 then raise exception 'Invalid ስህተት score.'; end if; raw_question_total := raw_question_total + score;
         score := coalesce((question_item ->> 'tajweed')::numeric, 0); if score < 0 or score > 2 then raise exception 'Invalid tajweed score.'; end if; raw_question_total := raw_question_total + score;
         score := coalesce((question_item ->> 'hesitation')::numeric, 0); if score < 0 or score > 2 then raise exception 'Invalid መንተባተብ score.'; end if; raw_question_total := raw_question_total + score;

@@ -26,8 +26,13 @@ begin
     new.revision_track := case when registration_level = 'alif' then 'qaida' else 'admin' end;
     new.revision_place := null;
   elsif new.status = 'submitted' then
-    if new.revision_track is null then
+    if new.result_class = 'second'
+      and (new.revision_track is null or new.revision_track not in ('alif', 'quran')) then
       raise exception 'ውጤት ከማስገባትዎ በፊት የሚከለስበትን ቦታ ይምረጡ!';
+    end if;
+    if new.result_class = 'third'
+      and (new.revision_track is null or new.revision_track not in ('alif', 'quran', 'qaida')) then
+      raise exception 'ውጤት ከማስገባትዎ በፊት የሚከለስበትን በታ ይምረጡ!';
     end if;
     if new.revision_track in ('alif', 'quran') and new.revision_place is null then
       raise exception 'ውጤት ከማስገባትዎ በፊት የሚከለስበትን ቦታ ይምረጡ!';
