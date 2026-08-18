@@ -1,12 +1,3 @@
-alter table public.exam_results
-  add column if not exists revision_track text;
-
-alter table public.exam_results
-  drop constraint if exists exam_results_revision_track_check;
-alter table public.exam_results
-  add constraint exam_results_revision_track_check
-  check (revision_track in ('alif', 'quran', 'qaida', 'admin') or revision_track is null);
-
 create or replace function public.validate_exam_revision()
 returns trigger
 language plpgsql
@@ -48,5 +39,3 @@ drop trigger if exists z_validate_exam_revision on public.exam_results;
 create trigger z_validate_exam_revision
 before insert or update on public.exam_results
 for each row execute function public.validate_exam_revision();
-
-grant select, insert, update on public.exam_results to authenticated;
