@@ -10,7 +10,7 @@ type Control = {
   registration_opens_at: string | null; registration_closes_at: string | null;
   registration_override: Override; exam_marking_opens_at: string | null;
   exam_marking_closes_at: string | null; exam_marking_override: Override;
-  ustaz_access_blocked: boolean;
+  ustaz_access_blocked: boolean; results_published: boolean;
 };
 
 function localDateTime(value: string | null) { return value ? new Date(value).toISOString().slice(0, 16) : ""; }
@@ -38,7 +38,7 @@ export default function PeriodsPage() {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
-    const { data, error } = await supabase.from("exam_periods").select("id,name,academic_year,status,registration_opens_at,registration_closes_at,registration_override,exam_marking_opens_at,exam_marking_closes_at,exam_marking_override,ustaz_access_blocked").order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const { data, error } = await supabase.from("exam_periods").select("id,name,academic_year,status,registration_opens_at,registration_closes_at,registration_override,exam_marking_opens_at,exam_marking_closes_at,exam_marking_override,ustaz_access_blocked,results_published").order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (error) { setMessage(error.message); return; }
     setControl(data as Control | null);
     setMessage("");
@@ -74,6 +74,12 @@ export default function PeriodsPage() {
     setSaving(false); setMessage(error ? error.message : blocked ? "Ustaz sign-in is blocked." : "Ustaz sign-in is enabled."); await loadControl();
   }
 
+  async function publishResults(published: boolean) {
+    if (!control) return; setSaving(true);
+    const { error } = await createClient().from("exam_periods").update({ results_published: published }).eq("id", control.id);
+    setSaving(false); setMessage(error ? error.message : published ? "Results are now visible to Ustazes." : "Results are hidden from Ustazes."); await loadControl();
+  }
+
   const registration = registrationOpen(control); const marking = markingOpen(control); const blocked = control?.ustaz_access_blocked ?? false;
   return <AdminShell active="periods">
     <header className="workspace-header"><div><p className="eyebrow">EXAM ADMIN · CONTROLS</p><h1>Registration control</h1><p>Registration settings are kept separate from Examiner marking settings.</p></div></header>
@@ -82,6 +88,7 @@ export default function PeriodsPage() {
       <section className="admin-card registration-status-card"><p className="eyebrow">REGISTRATION STATUS</p><div className={`registration-status ${registration ? "open" : "closed"}`}><span>{registration ? "●" : "○"}</span><div><strong>{registration ? "Registration is open" : "Registration is closed"}</strong><p>{registration ? "Ustazes can register and edit students." : "Ustazes cannot add or change registrations."}</p></div></div>{control && <><div className="registration-actions"><button className="open-button" type="button" onClick={() => void updateOverride("registration_override", "force_open")} disabled={saving}>Force open registration</button><button className="danger-button" type="button" onClick={() => void updateOverride("registration_override", "force_closed")} disabled={saving}>Force close registration</button><button className="secondary-button" type="button" onClick={() => void updateOverride("registration_override", "automatic")} disabled={saving}>Use registration dates</button></div><div className="admin-access-control"><div><strong>Ustaz sign-in access</strong><p>{blocked ? "Blocked while results are managed." : "Enabled."}</p></div><button className={blocked ? "open-button" : "danger-button"} type="button" onClick={() => void blockUstazes(!blocked)} disabled={saving}>{blocked ? "Enable Ustaz access" : "Block Ustazes"}</button></div></>}</section>
     </section>
     <section className="admin-card examiner-control-card"><div className="card-title"><div><p className="eyebrow">EXAMINER CONTROL</p><h2>Exam marking access</h2><p>These controls affect only Examiner mark entry. They do not change Ustaz registration.</p></div><div className={`registration-status ${marking ? "open" : "closed"}`}><span>{marking ? "●" : "○"}</span><strong>{marking ? "Marking open" : "Marking closed"}</strong></div></div>{control && <><form className="admin-grid" onSubmit={saveMarking}><label>Marking starts<input name="markingStartsAt" type="datetime-local" defaultValue={localDateTime(control.exam_marking_opens_at)} /></label><label>Marking ends<input name="markingEndsAt" type="datetime-local" defaultValue={localDateTime(control.exam_marking_closes_at)} /></label><button type="submit" disabled={saving}>{saving ? "Saving..." : "Save Examiner dates"}</button></form><div className="registration-actions"><button className="open-button" type="button" onClick={() => void updateOverride("exam_marking_override", "force_open")} disabled={saving}>Force open marking</button><button className="danger-button" type="button" onClick={() => void updateOverride("exam_marking_override", "force_closed")} disabled={saving}>Force close marking</button><button className="secondary-button" type="button" onClick={() => void updateOverride("exam_marking_override", "automatic")} disabled={saving}>Use marking dates</button></div></>}</section>
+    <section className="admin-card"><p className="eyebrow">RESULT VISIBILITY</p><h2>Ustaz result access</h2><p>{control?.results_published ? "Submitted results are visible to Ustazes." : "Submitted results are currently hidden from Ustazes."}</p>{control && <button className={control.results_published ? "danger-button" : "open-button"} type="button" onClick={() => void publishResults(!control.results_published)} disabled={saving}>{control.results_published ? "Hide results from Ustazes" : "Publish results to Ustazes"}</button>}</section>
     {message && <p className="admin-message">{message}</p>}
   </AdminShell>;
 }

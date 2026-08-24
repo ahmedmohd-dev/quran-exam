@@ -44,9 +44,24 @@ export async function proxy(request: NextRequest) {
       url.pathname = "/";
       return NextResponse.redirect(url);
     }
+    if (request.nextUrl.pathname.startsWith("/director") && profile?.role !== "director") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/";
+      return NextResponse.redirect(url);
+    }
     if (request.nextUrl.pathname === "/" && profile?.role === "examiner") {
       const url = request.nextUrl.clone();
       url.pathname = "/examiner";
+      return NextResponse.redirect(url);
+    }
+    if (request.nextUrl.pathname === "/" && profile?.role === "director") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/director";
+      return NextResponse.redirect(url);
+    }
+    if (request.nextUrl.pathname === "/" && profile?.role === "ustaz") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/results";
       return NextResponse.redirect(url);
     }
   }

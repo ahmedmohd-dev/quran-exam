@@ -295,6 +295,15 @@ export default function Home() {
           >
             የእኔ ተማሪዎች
           </button>
+          {role === "ustaz" && (
+            <button
+              className="nav-link"
+              type="button"
+              onClick={() => window.location.assign("/results")}
+            >
+              የተማሪዎቼ ውጤት
+            </button>
+          )}
         </nav>
         <div className="profile-card">
           <strong>{displayName}</strong>

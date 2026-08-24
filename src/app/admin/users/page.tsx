@@ -86,13 +86,13 @@ export default function UsersPage() {
     <AdminShell active="users">
       <header className="workspace-header"><div><p className="eyebrow">EXAM ADMIN · SETUP</p><h1>User accounts</h1><p>Create simple username-and-password accounts for Ustazes, Examiners, and the Director.</p></div><div className="workspace-step"><span>2</span><div><strong>Setup step</strong><small>People & permissions</small></div></div></header>
       <section className="admin-grid">
-        <form className="admin-card" onSubmit={createUser}>
+        <form className="admin-card account-create-form" onSubmit={createUser}>
           <h2>Create an account</h2>
-          <label>Full name<input name="fullName" required placeholder="Ustaz Abubakar" /></label>
+          <label className="account-full-name">Full name<input name="fullName" required placeholder="Ustaz Abubakar" /></label>
           <label>Username<input name="username" required pattern="[a-z0-9._-]{3,32}" title="Use 3–32 lowercase letters, numbers, dots, dashes, or underscores." placeholder="ustaz.abubakar" /></label>
           <label>Temporary password<input name="password" required minLength={8} type="password" autoComplete="new-password" /></label>
-          <label>Role<select name="role" defaultValue="ustaz"><option value="ustaz">Ustaz</option><option value="examiner">Examiner</option><option value="director">Director Ustaz</option></select></label>
-          <button type="submit" disabled={saving}>{saving ? "Creating…" : "Create account"}</button>
+          <label className="account-role">Role<select name="role" defaultValue="ustaz"><option value="ustaz">Ustaz</option><option value="examiner">Examiner</option><option value="director">Director Ustaz</option></select></label>
+          <button className="account-create-button" type="submit" disabled={saving}>{saving ? "Creating…" : "Create account"}</button>
         </form>
         <section className="admin-card"><div className="card-title"><div><h2>Accounts</h2><p>Each person can sign in with their own username.</p></div><span>{profiles.length}</span></div>{message && <p className="admin-message">{message}</p>}{profiles.map((profile) => <article className="period-row" key={profile.id}><div><strong>{profile.full_name}</strong><span>{profile.ustaz_code ? `${profile.ustaz_code} · ` : ""}{profile.username ?? "Admin email account"} · {profile.role}</span></div><div className="account-actions"><span className={`tag ${profile.active ? "complete" : "attention"}`}>{profile.active ? "Active" : "Inactive"}</span><button type="button" className="text-button" onClick={() => editProfile(profile)}>Edit</button>{profile.username && <button type="button" className="text-button" onClick={() => resetPassword(profile)}>Reset password</button>}<button type="button" className="text-button delete-button" onClick={() => deleteProfile(profile)}>Delete</button></div></article>)}{!message && profiles.length === 0 && <div className="empty-state"><span>◉</span><strong>No accounts yet</strong><p>Create Ustaz accounts first. They will only see students assigned under their own account.</p></div>}</section>
       </section>
