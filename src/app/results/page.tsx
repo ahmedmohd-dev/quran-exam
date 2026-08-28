@@ -22,7 +22,11 @@ export default function UstazResultsDashboard() {
   const [studentCount, setStudentCount] = useState(0);
   const [supplemental, setSupplemental] = useState<Supplemental[]>([]);
   const [comment, setComment] = useState("");
-  const [ranks, setRanks] = useState<{ quran_rank: number | null; hisnul_rank: number | null; homework_rank: number | null } | null>(null);
+  const [ranks, setRanks] = useState<{
+    quran_rank: number | null;
+    hisnul_rank: number | null;
+    homework_rank: number | null;
+  } | null>(null);
   const [message, setMessage] = useState("ውጤቶችን በመጫን ላይ…");
 
   useEffect(() => {
@@ -97,7 +101,9 @@ export default function UstazResultsDashboard() {
       setResults(loadedResults);
       setSupplemental((extra ?? []) as Supplemental[]);
       setComment(commentResponse.data?.comment ?? "");
-      const { data: rankingData } = await supabase.rpc("get_own_ustaz_rankings");
+      const { data: rankingData } = await supabase.rpc(
+        "get_own_ustaz_rankings"
+      );
       setRanks(rankingData?.[0] ?? null);
       setMessage("");
     }
@@ -141,7 +147,8 @@ export default function UstazResultsDashboard() {
   }, [results, supplemental]);
   const score = (value: number | null) =>
     value === null ? "—" : `${value.toFixed(2)} / 100`;
-  const rankLabel = (value: number | null | undefined) => value ? `${value}ኛ ደረጃ` : "—";
+  const rankLabel = (value: number | null | undefined) =>
+    value ? `${value}ኛ ደረጃ` : "—";
 
   return (
     <UstazShell>
@@ -182,13 +189,22 @@ export default function UstazResultsDashboard() {
             </article>
           </section>
           <section className="result-metrics">
-            <article><span>የቁርአን ደረጃ</span><strong>{rankLabel(ranks?.quran_rank)}</strong></article>
-            <article><span>የሂስኑል ሙስሊም ደረጃ</span><strong>{rankLabel(ranks?.hisnul_rank)}</strong></article>
-            <article><span>የቤት ስራ ደረጃ</span><strong>{rankLabel(ranks?.homework_rank)}</strong></article>
+            <article>
+              <span>የቁርአን ደረጃ</span>
+              <strong>{rankLabel(ranks?.quran_rank)}</strong>
+            </article>
+            <article>
+              <span>የሂስኑል ሙስሊም ደረጃ</span>
+              <strong>{rankLabel(ranks?.hisnul_rank)}</strong>
+            </article>
+            <article>
+              <span>የቤት ስራ ደረጃ</span>
+              <strong>{rankLabel(ranks?.homework_rank)}</strong>
+            </article>
           </section>
           {comment && (
             <section className="ustaz-general-comment">
-              <p className="eyebrow">አጠቃላይ አስተያየት</p>
+              <p className="eyebrow">አጠቃላይ አስተያየት(በኡስታዝ የተሰጠ)</p>
               <p>{comment}</p>
             </section>
           )}

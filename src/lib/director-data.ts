@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/client";
 
 export type Ustaz = { id: string; full_name: string; ustaz_code: string | null };
-export type Registration = { id: string; ustaz_id: string; student: { full_name: string } | null };
+export type Registration = { id: string; ustaz_id: string; registered_age: number | null; class_group: string | null; student: { full_name: string } | null };
 export type Result = {
   student_registration_id: string;
   examiner_assignment_id: string;
@@ -59,7 +59,7 @@ export async function loadDirectorData() {
 
   const [ustazQuery, registrationQuery, resultQuery] = await Promise.all([
     supabase.from("profiles").select("id,full_name,ustaz_code").eq("role", "ustaz").eq("active", true).order("full_name"),
-    supabase.from("student_registrations").select("id,ustaz_id,student:students(full_name)").eq("exam_period_id", period.id),
+    supabase.from("student_registrations").select("id,ustaz_id,registered_age,class_group,student:students(full_name)").eq("exam_period_id", period.id),
     supabase.from("exam_results").select("student_registration_id,examiner_assignment_id,status,total_mark,result_class").eq("exam_period_id", period.id),
   ]);
   const error = [ustazQuery.error, registrationQuery.error, resultQuery.error].find(Boolean);
