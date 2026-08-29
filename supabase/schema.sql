@@ -9,6 +9,7 @@ create table public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text not null,
   role public.user_role not null default 'ustaz',
+  manager_id uuid references public.profiles(id) on delete set null,
   active boolean not null default true,
   created_at timestamptz not null default now()
 );

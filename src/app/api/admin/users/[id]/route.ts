@@ -16,7 +16,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const connection = await getAdminClient();
   if (connection.error) return connection.error;
   const { id } = await params;
-  const body = await request.json() as { fullName?: string; active?: boolean; password?: string };
+  const body = await request.json() as { fullName?: string; active?: boolean; password?: string; managerId?: string | null };
   if (body.password !== undefined) {
     if (body.password.length < 8) return NextResponse.json({ error: "Password must contain at least 8 characters." }, { status: 400 });
     const { data: account, error: accountError } = await connection.admin.from("profiles").select("username").eq("id", id).maybeSingle();
@@ -30,7 +30,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
   const fullName = body.fullName?.trim();
   if (!fullName) return NextResponse.json({ error: "A full name is required." }, { status: 400 });
-  const { error } = await connection.admin.from("profiles").update({ full_name: fullName, active: body.active ?? true }).eq("id", id);
+  const { error } = await connection.admin.from("profiles").update({ full_name: fullName, active: body.active ?? true, ...(body.managerId !== undefined ? { manager_id: body.managerId || null } : {}) }).eq("id", id);
   return error ? NextResponse.json({ error: error.message }, { status: 400 }) : NextResponse.json({ ok: true });
 }
 

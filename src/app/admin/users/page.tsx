@@ -4,7 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { AdminShell } from "@/components/admin-shell";
 
-type Profile = { id: string; full_name: string; username: string | null; ustaz_code: string | null; role: string; active: boolean };
+type Profile = { id: string; full_name: string; username: string | null; ustaz_code: string | null; role: string; manager_id: string | null; active: boolean };
 
 export default function UsersPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -20,7 +20,7 @@ export default function UsersPage() {
       setMessage("Only the Exam Admin can manage accounts.");
       return;
     }
-    const { data, error } = await supabase.from("profiles").select("id, full_name, username, ustaz_code, role, active").order("created_at");
+    const { data, error } = await supabase.from("profiles").select("id, full_name, username, ustaz_code, role, manager_id, active").order("created_at");
     if (error) {
       setMessage("Could not load accounts. Please check your connection.");
       return;
@@ -74,6 +74,13 @@ export default function UsersPage() {
     setMessage(response.ok ? "Password reset successfully. The account and assignments were preserved." : result.error ?? "Could not reset the password.");
   }
 
+  async function saveManager(profile: Profile, managerId: string) {
+    const response = await fetch(`/api/admin/users/${profile.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fullName: profile.full_name, active: profile.active, managerId: managerId || null }) });
+    const result = await response.json() as { error?: string };
+    setMessage(response.ok ? "Manager relationship saved." : result.error ?? "Could not save manager relationship.");
+    if (response.ok) await loadProfiles();
+  }
+
   async function deleteProfile(profile: Profile) {
     if (!window.confirm(`Delete ${profile.full_name}'s account? This cannot be undone.`)) return;
     const response = await fetch(`/api/admin/users/${profile.id}`, { method: "DELETE" });
@@ -94,7 +101,7 @@ export default function UsersPage() {
           <label className="account-role">Role<select name="role" defaultValue="ustaz"><option value="ustaz">Ustaz</option><option value="examiner">Examiner</option><option value="director">Director Ustaz</option></select></label>
           <button className="account-create-button" type="submit" disabled={saving}>{saving ? "Creating…" : "Create account"}</button>
         </form>
-        <section className="admin-card"><div className="card-title"><div><h2>Accounts</h2><p>Each person can sign in with their own username.</p></div><span>{profiles.length}</span></div>{message && <p className="admin-message">{message}</p>}{profiles.map((profile) => <article className="period-row" key={profile.id}><div><strong>{profile.full_name}</strong><span>{profile.ustaz_code ? `${profile.ustaz_code} · ` : ""}{profile.username ?? "Admin email account"} · {profile.role}</span></div><div className="account-actions"><span className={`tag ${profile.active ? "complete" : "attention"}`}>{profile.active ? "Active" : "Inactive"}</span><button type="button" className="text-button" onClick={() => editProfile(profile)}>Edit</button>{profile.username && <button type="button" className="text-button" onClick={() => resetPassword(profile)}>Reset password</button>}<button type="button" className="text-button delete-button" onClick={() => deleteProfile(profile)}>Delete</button></div></article>)}{!message && profiles.length === 0 && <div className="empty-state"><span>◉</span><strong>No accounts yet</strong><p>Create Ustaz accounts first. They will only see students assigned under their own account.</p></div>}</section>
+        <section className="admin-card"><div className="card-title"><div><h2>Accounts</h2><p>Each person can sign in with their own username.</p></div><span>{profiles.length}</span></div>{message && <p className="admin-message">{message}</p>}{profiles.map((profile) => <article className="period-row" key={profile.id}><div><strong>{profile.full_name}</strong><span>{profile.ustaz_code ? `${profile.ustaz_code} · ` : ""}{profile.username ?? "Admin email account"} · {profile.role}</span>{profile.role === "ustaz" && <label className="manager-select">Managed by<select value={profile.manager_id ?? ""} onChange={(event) => void saveManager(profile, event.target.value)}><option value="">No manager</option>{profiles.filter((candidate) => candidate.role === "ustaz" && candidate.id !== profile.id).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.full_name}</option>)}</select></label>}</div><div className="account-actions"><span className={`tag ${profile.active ? "complete" : "attention"}`}>{profile.active ? "Active" : "Inactive"}</span><button type="button" className="text-button" onClick={() => editProfile(profile)}>Edit</button>{profile.username && <button type="button" className="text-button" onClick={() => resetPassword(profile)}>Reset password</button>}<button type="button" className="text-button delete-button" onClick={() => deleteProfile(profile)}>Delete</button></div></article>)}{!message && profiles.length === 0 && <div className="empty-state"><span>◉</span><strong>No accounts yet</strong><p>Create Ustaz accounts first. They will only see students assigned under their own account.</p></div>}</section>
       </section>
     </AdminShell>
   );

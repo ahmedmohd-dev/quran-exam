@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/client";
 
-export type Ustaz = { id: string; full_name: string; ustaz_code: string | null };
-export type Registration = { id: string; ustaz_id: string; registered_age: number | null; class_group: string | null; student: { full_name: string } | null };
+export type Ustaz = { id: string; full_name: string; ustaz_code: string | null; manager_id: string | null };
+export type Registration = { id: string; ustaz_id: string; registered_age: number | null; study_years: number | null; study_months: number | null; class_group: string | null; student: { full_name: string } | null };
 export type Result = {
   student_registration_id: string;
   examiner_assignment_id: string;
@@ -58,8 +58,8 @@ export async function loadDirectorData() {
   if (periodError || !period) throw new Error(periodError?.message ?? "የፈተና ወቅት አልተገኘም።");
 
   const [ustazQuery, registrationQuery, resultQuery] = await Promise.all([
-    supabase.from("profiles").select("id,full_name,ustaz_code").eq("role", "ustaz").eq("active", true).order("full_name"),
-    supabase.from("student_registrations").select("id,ustaz_id,registered_age,class_group,student:students(full_name)").eq("exam_period_id", period.id),
+    supabase.from("profiles").select("id,full_name,ustaz_code,manager_id").eq("role", "ustaz").eq("active", true).order("full_name"),
+    supabase.from("student_registrations").select("id,ustaz_id,registered_age,study_years,study_months,class_group,student:students(full_name)").eq("exam_period_id", period.id),
     supabase.from("exam_results").select("student_registration_id,examiner_assignment_id,status,total_mark,result_class").eq("exam_period_id", period.id),
   ]);
   const error = [ustazQuery.error, registrationQuery.error, resultQuery.error].find(Boolean);
@@ -93,11 +93,22 @@ function averageAsPercent(values: Array<number | null>, rawMaximum: number) {
 export function buildProgress(ustazes: Ustaz[], registrations: Registration[], results: Result[], supplemental: SupplementalResult[]): UstazProgress[] {
   const resultByRegistration = new Map(results.map((result) => [result.student_registration_id, result]));
   const supplementalByAssignment = new Map(supplemental.map((result) => [result.examiner_assignment_id, result]));
-  return ustazes.map((ustaz) => {
-    const ownRegistrations = registrations.filter((registration) => registration.ustaz_id === ustaz.id);
+  return ustazes.filter((ustaz) => !ustaz.manager_id).map((ustaz) => {
+    const managedIds = ustazes.filter((candidate) => candidate.manager_id === ustaz.id).map((candidate) => candidate.id);
+    const ownRegistrations = registrations.filter((registration) => [ustaz.id, ...managedIds].includes(registration.ustaz_id));
     const ownResults = ownRegistrations.map((registration) => resultByRegistration.get(registration.id)).filter((result): result is Result => Boolean(result));
     const submittedResults = ownResults.filter((result) => result.status === "submitted");
     const submittedSupplemental = submittedResults
+      .map((result) => supplementalByAssignment.get(result.examiner_assignment_id))
+      .filter((result): result is SupplementalResult => Boolean(result));
+    const hisnulEligibleRegistrationIds = new Set(ownRegistrations
+      .filter((registration) => {
+        const durationInMonths = (registration.study_years ?? 0) * 12 + (registration.study_months ?? 0);
+        return durationInMonths !== 1 && durationInMonths !== 2;
+      })
+      .map((registration) => registration.id));
+    const hisnulEligibleSupplemental = submittedResults
+      .filter((result) => hisnulEligibleRegistrationIds.has(result.student_registration_id))
       .map((result) => supplementalByAssignment.get(result.examiner_assignment_id))
       .filter((result): result is SupplementalResult => Boolean(result));
     const ranks = { first: 0, second: 0, third: 0, fourth: 0 };
@@ -109,9 +120,9 @@ export function buildProgress(ustazes: Ustaz[], registrations: Registration[], r
       drafts: ownResults.filter((result) => result.status === "draft").length,
       notStarted: ownRegistrations.length - ownResults.length,
       average: submittedResults.length ? submittedResults.reduce((sum, result) => sum + Number(result.total_mark), 0) / submittedResults.length : null,
-      hisnulAverage: averageAsPercent(submittedSupplemental.map((result) => result.hisnul_muslim_mark), 20),
+      hisnulAverage: averageAsPercent(hisnulEligibleSupplemental.map((result) => result.hisnul_muslim_mark), 20),
       homeworkAverage: averageAsPercent(submittedSupplemental.map((result) => result.homework_mark), 5),
-      hisnulCount: submittedSupplemental.filter((result) => result.hisnul_muslim_mark !== null).length,
+      hisnulCount: hisnulEligibleSupplemental.filter((result) => result.hisnul_muslim_mark !== null).length,
       homeworkCount: submittedSupplemental.filter((result) => result.homework_mark !== null).length,
       ranks,
     };

@@ -12,7 +12,7 @@ export async function POST(request: Request) {
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
   if (profile?.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const body = await request.json() as { fullName?: string; username?: string; password?: string; role?: string };
+  const body = await request.json() as { fullName?: string; username?: string; password?: string; role?: string; managerId?: string | null };
   const fullName = body.fullName?.trim();
   const username = body.username?.trim().toLowerCase();
   const password = body.password;
@@ -37,6 +37,7 @@ export async function POST(request: Request) {
     full_name: fullName,
     username,
     role,
+    manager_id: role === "ustaz" ? body.managerId || null : null,
   });
   if (profileError) {
     await admin.auth.admin.deleteUser(createdUser.user.id);

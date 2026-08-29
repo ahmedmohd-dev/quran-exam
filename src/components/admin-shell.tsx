@@ -7,7 +7,7 @@ import logo from "../../assets/logo.jpg";
 import { SignOutButton } from "@/components/sign-out-button";
 
 type AdminShellProps = {
-  active: "periods" | "users" | "students" | "assignments" | "classification" | "review" | "results" | "classResults" | "progress" | "packets" | "ustazFeedback" | "ageResults" | "zeroReport" | "report" | "standards";
+  active: "periods" | "users" | "students" | "assignments" | "classification" | "review" | "results" | "classResults" | "progress" | "packets" | "ustazFeedback" | "ageResults" | "zeroReport" | "report" | "standards" | "ustazRankings";
   children: ReactNode;
 };
 
@@ -37,6 +37,7 @@ export function AdminShell({ active, children }: AdminShellProps) {
           <Link className={active === "results" ? "active" : ""} href="/admin/results" onClick={closeMenu}>Test results</Link>
           <Link className={active === "classResults" ? "active" : ""} href="/admin/classes" onClick={closeMenu}>Results by rank</Link>
           <Link className={active === "ageResults" ? "active" : ""} href="/admin/age-results" onClick={closeMenu}>Results by age</Link>
+          <Link className={active === "ustazRankings" ? "active" : ""} href="/admin/ustaz-rankings" onClick={closeMenu}>Ustaz rankings</Link>
           <Link className={active === "zeroReport" ? "active" : ""} href="/admin/zero-report" onClick={closeMenu}>Zero-mark report</Link>
           <Link className={active === "report" ? "active" : ""} href="/admin/report" onClick={closeMenu}>Full exam report</Link>
           <Link className={active === "standards" ? "active" : ""} href="/admin/standards" onClick={closeMenu}>Below standard</Link>
