@@ -247,6 +247,10 @@
 .director-ranks span { color: var(--muted); font-size: 13px; }
 .director-ustaz-summary b,
 .director-ranks b { color: var(--green-deep); }
+.director-ustaz-descriptions { display: grid; flex: 1 1 100%; gap: 5px; }
+.director-ustaz-descriptions p { color: var(--muted); font-size: 13px; line-height: 1.5; margin: 0; }
+.director-ustaz-descriptions strong { color: var(--green-deep); }
+.director-rank-counts { display: flex; flex-wrap: wrap; gap: 10px 22px; }
 
 @media (max-width: 850px) {
   .director-app { display: block; }
@@ -467,6 +471,8 @@
 .director-comment-form label { display: grid; gap: 6px; font-size: 13px; font-weight: 700; }
 .ustaz-review-history { margin: 24px 0; }
 .ustaz-review-history .panel-heading { align-items: center; }
+.ustaz-review-history .panel-heading h2,
+.ustaz-review-history .panel-heading p { font-weight: 800; text-decoration: underline; }
 .ustaz-review-list { display: grid; gap: 12px; }
 .ustaz-review-item { background: white; border: 1px solid var(--line); border-radius: 12px; display: grid; gap: 8px; padding: 16px; }
 .ustaz-review-item p { margin: 0; }

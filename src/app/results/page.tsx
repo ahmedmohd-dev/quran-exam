@@ -11,7 +11,11 @@ type Result = {
   result_class: "first" | "second" | "third" | "fourth";
   examiner_assignment_id: string;
 };
-type Registration = { id: string; study_years: number | null; study_months: number | null };
+type Registration = {
+  id: string;
+  study_years: number | null;
+  study_months: number | null;
+};
 type Supplemental = {
   examiner_assignment_id: string;
   hisnul_muslim_mark: number | null;
@@ -22,7 +26,8 @@ export default function UstazResultsDashboard() {
   const [results, setResults] = useState<Result[]>([]);
   const [studentCount, setStudentCount] = useState(0);
   const [supplemental, setSupplemental] = useState<Supplemental[]>([]);
-  const [studyDurationByRegistration, setStudyDurationByRegistration] = useState<Map<string, number>>(new Map());
+  const [studyDurationByRegistration, setStudyDurationByRegistration] =
+    useState<Map<string, number>>(new Map());
   const [comment, setComment] = useState("");
   const [ranks, setRanks] = useState<{
     quran_rank: number | null;
@@ -47,7 +52,12 @@ export default function UstazResultsDashboard() {
         .eq("manager_id", user.id)
         .eq("role", "ustaz")
         .eq("active", true);
-      const visibleUstazIds = [user.id, ...((managedUstazes ?? []) as { id: string }[]).map((profile) => profile.id)];
+      const visibleUstazIds = [
+        user.id,
+        ...((managedUstazes ?? []) as { id: string }[]).map(
+          (profile) => profile.id
+        ),
+      ];
       const { data: period } = await supabase
         .from("exam_periods")
         .select("id")
@@ -69,7 +79,15 @@ export default function UstazResultsDashboard() {
       }
       const registrationRows = (registrations ?? []) as Registration[];
       const registrationIds = registrationRows.map((item) => item.id);
-      setStudyDurationByRegistration(new Map(registrationRows.map((registration) => [registration.id, (registration.study_years ?? 0) * 12 + (registration.study_months ?? 0)])));
+      setStudyDurationByRegistration(
+        new Map(
+          registrationRows.map((registration) => [
+            registration.id,
+            (registration.study_years ?? 0) * 12 +
+              (registration.study_months ?? 0),
+          ])
+        )
+      );
       setStudentCount(registrationIds.length);
       const [resultResponse, commentResponse] = await Promise.all([
         registrationIds.length
@@ -126,15 +144,27 @@ export default function UstazResultsDashboard() {
       supplemental.map((item) => [item.examiner_assignment_id, item])
     );
     const extras = results
-      .map((item) => ({ result: item, extra: extraByAssignment.get(item.examiner_assignment_id) }))
+      .map((item) => ({
+        result: item,
+        extra: extraByAssignment.get(item.examiner_assignment_id),
+      }))
       .filter((item) => item.extra)
       .map((item) => item.extra as Supplemental)
       .filter(Boolean) as Supplemental[];
-    const hisnulEligibleRegistrationIds = new Set(results
-      .map((item) => item.student_registration_id)
-      .filter((registrationId) => ![1, 2].includes(studyDurationByRegistration.get(registrationId) ?? 0)));
+    const hisnulEligibleRegistrationIds = new Set(
+      results
+        .map((item) => item.student_registration_id)
+        .filter(
+          (registrationId) =>
+            ![1, 2].includes(
+              studyDurationByRegistration.get(registrationId) ?? 0
+            )
+        )
+    );
     const hisnulExtras = results
-      .filter((item) => hisnulEligibleRegistrationIds.has(item.student_registration_id))
+      .filter((item) =>
+        hisnulEligibleRegistrationIds.has(item.student_registration_id)
+      )
       .map((item) => extraByAssignment.get(item.examiner_assignment_id))
       .filter(Boolean) as Supplemental[];
     const percentage = (values: Array<number | null>, maximum: number) => {
