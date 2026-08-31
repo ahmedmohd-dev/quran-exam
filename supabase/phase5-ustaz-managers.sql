@@ -1,6 +1,23 @@
 alter table public.profiles
   add column if not exists manager_id uuid references public.profiles(id) on delete set null;
 
+drop policy if exists "users read their permitted students" on public.students;
+create policy "users read their permitted students"
+  on public.students for select to authenticated
+  using (
+    public.current_role() in ('admin', 'director')
+    or exists (select 1 from public.student_registrations registration where registration.student_id = students.id and registration.ustaz_id = auth.uid())
+    or exists (
+      select 1
+      from public.student_registrations registration
+      join public.profiles owner on owner.id = registration.ustaz_id
+      where registration.student_id = students.id
+        and owner.manager_id = auth.uid()
+        and owner.role = 'ustaz'
+        and owner.active = true
+    )
+  );
+
 create index if not exists profiles_manager_id_idx on public.profiles (manager_id);
 
 drop policy if exists "ustaz managers view subordinate registrations" on public.student_registrations;
