@@ -1228,6 +1228,42 @@
 .student-row {
   grid-template-columns: 38px minmax(160px, 1fr) 95px minmax(105px, auto);
 }
+.school-information-row {
+  grid-template-columns: 38px minmax(180px, 1fr) minmax(140px, auto) minmax(105px, auto);
+}
+.school-information-row .student-name em {
+  color: var(--green-deep);
+  font-size: 13px;
+  font-style: normal;
+}
+.school-information-meta {
+  color: var(--green-deep);
+  display: grid;
+  font-size: 13px;
+  gap: 4px;
+  text-align: right;
+}
+.school-information-meta small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.form-help {
+  background: #f4f8f5;
+  border: 1px solid #cfe1d5;
+  border-radius: 8px;
+  color: #476a59;
+  font-size: 13px;
+  line-height: 1.5;
+  margin: -4px 0 0;
+  padding: 10px 12px;
+}
+.school-information-form textarea {
+  border: 1px solid #cdd7d0;
+  border-radius: 7px;
+  font: inherit;
+  padding: 11px;
+  resize: vertical;
+}
 .row-actions {
   display: flex;
   gap: 8px;
@@ -1257,6 +1293,14 @@
   }
   .student-row {
     grid-template-columns: 38px minmax(0, 1fr) 82px;
+  }
+  .school-information-row {
+    grid-template-columns: 38px minmax(0, 1fr);
+  }
+  .school-information-meta {
+    grid-column: 2;
+    justify-items: start;
+    text-align: left;
   }
   .row-actions {
     grid-column: 2 / -1;
