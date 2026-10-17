@@ -61,7 +61,7 @@ export async function proxy(request: NextRequest) {
     }
     if (request.nextUrl.pathname === "/" && profile?.role === "ustaz") {
       const url = request.nextUrl.clone();
-      url.pathname = "/results";
+      url.pathname = "/school-information";
       return NextResponse.redirect(url);
     }
   }
