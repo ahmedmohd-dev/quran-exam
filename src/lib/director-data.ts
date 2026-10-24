@@ -1,7 +1,8 @@
 import { createClient } from "@/lib/supabase/client";
+import { getExamGroupScope, type ExamGroupCode } from "@/lib/exam-group-scope";
 
 export type Ustaz = { id: string; full_name: string; ustaz_code: string | null; manager_id: string | null };
-export type Registration = { id: string; ustaz_id: string; registered_age: number | null; study_years: number | null; study_months: number | null; class_group: string | null; student: { full_name: string } | null };
+export type Registration = { id: string; student_id: string; ustaz_id: string; registered_age: number | null; study_years: number | null; study_months: number | null; class_group: string | null; student: { full_name: string } | null };
 export type Result = {
   student_registration_id: string;
   examiner_assignment_id: string;
@@ -47,7 +48,7 @@ export const mederesaClasses = [
   { id: "mezelah", title: "مظلة (የናሙስ ክፍል)", ustazCodes: ["UST-02", "UST-15", "UST-16", "UST-19", "UST-13", "UST-04"] },
 ];
 
-export async function loadDirectorData() {
+export async function loadDirectorData(groupCode: ExamGroupCode = "boys") {
   const supabase = createClient();
   const { data: period, error: periodError } = await supabase
     .from("exam_periods")
@@ -57,15 +58,21 @@ export async function loadDirectorData() {
     .maybeSingle();
   if (periodError || !period) throw new Error(periodError?.message ?? "የፈተና ወቅት አልተገኘም።");
 
+  const scope = await getExamGroupScope(supabase, groupCode);
+  if (scope.error) throw scope.error;
+
   const [ustazQuery, registrationQuery, resultQuery] = await Promise.all([
     supabase.from("profiles").select("id,full_name,ustaz_code,manager_id").eq("role", "ustaz").eq("active", true).order("full_name"),
-    supabase.from("student_registrations").select("id,ustaz_id,registered_age,study_years,study_months,class_group,student:students(full_name)").eq("exam_period_id", period.id),
+    supabase.from("student_registrations").select("id,student_id,ustaz_id,registered_age,study_years,study_months,class_group,student:students(full_name)").eq("exam_period_id", period.id),
     supabase.from("exam_results").select("student_registration_id,examiner_assignment_id,status,total_mark,result_class").eq("exam_period_id", period.id),
   ]);
   const error = [ustazQuery.error, registrationQuery.error, resultQuery.error].find(Boolean);
   if (error) throw new Error(error.message);
 
-  const results = (resultQuery.data ?? []) as Result[];
+  const ustazes = ((ustazQuery.data ?? []) as Ustaz[]).filter((ustaz) => scope.profileIds.has(ustaz.id));
+  const registrations = ((registrationQuery.data ?? []) as unknown as Registration[]).filter((registration) => scope.studentIds.has(registration.student_id));
+  const registrationIds = new Set(registrations.map((registration) => registration.id));
+  const results = ((resultQuery.data ?? []) as Result[]).filter((result) => registrationIds.has(result.student_registration_id));
   const assignmentIds = results.map((result) => result.examiner_assignment_id).filter(Boolean);
   const supplementalQuery = assignmentIds.length
     ? await supabase
@@ -78,8 +85,9 @@ export async function loadDirectorData() {
   return {
     periodId: period.id,
     periodName: period.name ?? "የአሁኑ ፈተና",
-    ustazes: (ustazQuery.data ?? []) as Ustaz[],
-    registrations: (registrationQuery.data ?? []) as unknown as Registration[],
+    groupCode,
+    ustazes,
+    registrations,
     results,
     supplemental: (supplementalQuery.data ?? []) as SupplementalResult[],
   };
@@ -90,11 +98,11 @@ function averageAsPercent(values: Array<number | null>, rawMaximum: number) {
   return filledValues.length ? filledValues.reduce((sum, value) => sum + Number(value), 0) / filledValues.length / rawMaximum * 100 : null;
 }
 
-export function buildProgress(ustazes: Ustaz[], registrations: Registration[], results: Result[], supplemental: SupplementalResult[]): UstazProgress[] {
+export function buildProgress(ustazes: Ustaz[], registrations: Registration[], results: Result[], supplemental: SupplementalResult[], includeManagedUstazes = true): UstazProgress[] {
   const resultByRegistration = new Map(results.map((result) => [result.student_registration_id, result]));
   const supplementalByAssignment = new Map(supplemental.map((result) => [result.examiner_assignment_id, result]));
-  return ustazes.filter((ustaz) => !ustaz.manager_id).map((ustaz) => {
-    const managedIds = ustazes.filter((candidate) => candidate.manager_id === ustaz.id).map((candidate) => candidate.id);
+  return ustazes.filter((ustaz) => includeManagedUstazes ? !ustaz.manager_id : true).map((ustaz) => {
+    const managedIds = includeManagedUstazes ? ustazes.filter((candidate) => candidate.manager_id === ustaz.id).map((candidate) => candidate.id) : [];
     const ownRegistrations = registrations.filter((registration) => [ustaz.id, ...managedIds].includes(registration.ustaz_id));
     const ownResults = ownRegistrations.map((registration) => resultByRegistration.get(registration.id)).filter((result): result is Result => Boolean(result));
     const submittedResults = ownResults.filter((result) => result.status === "submitted");

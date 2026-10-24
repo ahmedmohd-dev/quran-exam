@@ -12,11 +12,12 @@ export async function POST(request: Request) {
   const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
   if (profile?.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
-  const body = await request.json() as { fullName?: string; username?: string; password?: string; role?: string; managerId?: string | null };
+  const body = await request.json() as { fullName?: string; username?: string; password?: string; role?: string; managerId?: string | null; groupCode?: string };
   const fullName = body.fullName?.trim();
   const username = body.username?.trim().toLowerCase();
   const password = body.password;
   const role = body.role;
+  const groupCode = body.groupCode === "girls" ? "girls" : "boys";
   if (!fullName || !username || !password || !["ustaz", "examiner", "director"].includes(role ?? "")) {
     return NextResponse.json({ error: "Complete all fields with a valid role." }, { status: 400 });
   }
@@ -42,6 +43,19 @@ export async function POST(request: Request) {
   if (profileError) {
     await admin.auth.admin.deleteUser(createdUser.user.id);
     return NextResponse.json({ error: profileError.message }, { status: 400 });
+  }
+
+  const { data: group } = await admin.from("exam_groups").select("id").eq("code", groupCode).maybeSingle();
+  if (!group) {
+    await admin.from("profiles").delete().eq("id", createdUser.user.id);
+    await admin.auth.admin.deleteUser(createdUser.user.id);
+    return NextResponse.json({ error: "The selected examination group is not configured." }, { status: 400 });
+  }
+  const { error: membershipError } = await admin.from("exam_group_memberships").insert({ exam_group_id: group.id, profile_id: createdUser.user.id });
+  if (membershipError) {
+    await admin.from("profiles").delete().eq("id", createdUser.user.id);
+    await admin.auth.admin.deleteUser(createdUser.user.id);
+    return NextResponse.json({ error: membershipError.message }, { status: 400 });
   }
 
   return NextResponse.json({ ok: true });

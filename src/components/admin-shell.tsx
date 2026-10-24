@@ -2,9 +2,16 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ReactNode, useState } from "react";
+import { createContext, ReactNode, useContext, useEffect, useState } from "react";
 import logo from "../../assets/logo.jpg";
 import { SignOutButton } from "@/components/sign-out-button";
+import { ExamGroupSwitcher } from "@/components/exam-group-switcher";
+
+const AdminExamGroupContext = createContext<"boys" | "girls">("boys");
+
+export function useAdminExamGroup() {
+  return useContext(AdminExamGroupContext);
+}
 
 type AdminShellProps = {
   active: "periods" | "users" | "students" | "assignments" | "classification" | "review" | "results" | "classResults" | "progress" | "packets" | "ustazFeedback" | "ageResults" | "zeroReport" | "report" | "standards" | "ustazRankings";
@@ -13,13 +20,27 @@ type AdminShellProps = {
 
 export function AdminShell({ active, children }: AdminShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [groupCode, setGroupCode] = useState<"boys" | "girls">(() => {
+    if (typeof window === "undefined") return "boys";
+    const stored = window.localStorage.getItem("exam-group");
+    return stored === "girls" ? "girls" : "boys";
+  });
+
+  useEffect(() => {
+    function onGroupChanged(event: Event) {
+      const code = (event as CustomEvent<"boys" | "girls">).detail;
+      if (code === "boys" || code === "girls") setGroupCode(code);
+    }
+    window.addEventListener("exam-group-changed", onGroupChanged);
+    return () => window.removeEventListener("exam-group-changed", onGroupChanged);
+  }, []);
 
   function closeMenu() {
     setMenuOpen(false);
   }
 
   return (
-    <main className="admin-app">
+    <AdminExamGroupContext.Provider value={groupCode}><main className="admin-app">
       <button className="admin-menu-toggle" type="button" onClick={() => setMenuOpen((open) => !open)} aria-expanded={menuOpen} aria-controls="admin-navigation">
         {menuOpen ? "×" : "☰"}<span>{menuOpen ? "ዝጋ" : "ምናሌ"}</span>
       </button>
@@ -27,6 +48,7 @@ export function AdminShell({ active, children }: AdminShellProps) {
       <aside className={`admin-sidebar ${menuOpen ? "mobile-open" : ""}`} id="admin-navigation">
         <Link className="admin-brand" href="/" onClick={closeMenu}><Image src={logo} alt="مركز علي الحيدر logo" className="logo" priority /><span>مركز علي الحيدر</span></Link>
         <p className="admin-label">EXAM ADMIN</p>
+        <ExamGroupSwitcher />
         <nav className="admin-nav">
           <Link className={active === "periods" ? "active" : ""} href="/admin/periods" onClick={closeMenu}>Registration control</Link>
           <Link className={active === "users" ? "active" : ""} href="/admin/users" onClick={closeMenu}>User accounts</Link>
@@ -49,6 +71,6 @@ export function AdminShell({ active, children }: AdminShellProps) {
         <div className="admin-help"><strong>Need help?</strong><span>Set the registration dates, then add Ustaz accounts.</span><SignOutButton className="admin-sign-out" /></div>
       </aside>
       <section className="admin-content">{children}</section>
-    </main>
+    </main></AdminExamGroupContext.Provider>
   );
 }

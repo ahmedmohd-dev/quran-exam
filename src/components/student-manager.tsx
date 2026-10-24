@@ -7,7 +7,7 @@ import { surahs } from "@/lib/surahs";
 import { alifFesels } from "@/lib/alif-fesels";
 
 type Student = { id: string; registrationId: string; name: string; age: number; ustazId: string; ustazName: string; level: "Alif" | "Qur'an"; learningPlace: string; studyYears: number; studyMonths: number };
-type Ustaz = { id: string; full_name: string };
+type Ustaz = { id: string; full_name: string; groupCode: "boys" | "girls" };
 
 export function StudentManager({ admin = false }: { admin?: boolean }) {
   const [students, setStudents] = useState<Student[]>([]);
@@ -20,6 +20,11 @@ export function StudentManager({ admin = false }: { admin?: boolean }) {
   const [level, setLevel] = useState<"Alif" | "Qur'an">("Qur'an");
   const [place, setPlace] = useState("");
   const [ustazId, setUstazId] = useState("");
+  const [groupCode, setGroupCode] = useState<"boys" | "girls">(() => {
+    if (typeof window === "undefined") return "boys";
+    const stored = window.localStorage.getItem("exam-group");
+    return stored === "girls" ? "girls" : "boys";
+  });
 
   async function loadStudents() {
     const supabase = createClient();
@@ -28,23 +33,41 @@ export function StudentManager({ admin = false }: { admin?: boolean }) {
     const { data: period, error: periodError } = await supabase.from("exam_periods").select("id").order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (periodError || !period) { setNotice("No current registration session was found."); return; }
     setPeriodId(period.id);
-    let registrations = supabase.from("student_registrations").select("id, ustaz_id, registered_age, current_learning_level, current_learning_place, study_years, study_months, student:students(student_number, full_name), ustaz:profiles!student_registrations_ustaz_id_fkey(full_name)").eq("exam_period_id", period.id).order("created_at", { ascending: false });
+    let registrations = supabase.from("student_registrations").select("id, student_id, ustaz_id, registered_age, current_learning_level, current_learning_place, study_years, study_months, student:students(student_number, full_name), ustaz:profiles!student_registrations_ustaz_id_fkey(full_name)").eq("exam_period_id", period.id).order("created_at", { ascending: false });
     if (!admin) registrations = registrations.eq("ustaz_id", user.id);
     const { data, error } = await registrations;
     if (error) { setNotice(error.message); return; }
-    setStudents((data ?? []).map((item) => {
+    let visibleRegistrations = data ?? [];
+    if (admin) {
+      const { data: memberships, error: membershipError } = await supabase.from("exam_group_memberships").select("student_id,exam_group:exam_groups!inner(code)").eq("exam_group.code", groupCode);
+      if (membershipError) { setNotice(membershipError.message); return; }
+      const studentIds = new Set((memberships ?? []).map((membership) => membership.student_id).filter((id): id is string => Boolean(id)));
+      visibleRegistrations = visibleRegistrations.filter((registration) => studentIds.has(registration.student_id));
+    }
+    setStudents(visibleRegistrations.map((item) => {
       const student = item.student as unknown as { student_number: string; full_name: string };
       const ustaz = item.ustaz as unknown as { full_name: string } | null;
       return { id: student.student_number, registrationId: item.id, name: student.full_name, age: item.registered_age ?? 0, ustazId: item.ustaz_id, ustazName: ustaz?.full_name ?? "", level: item.current_learning_level === "alif" ? "Alif" : "Qur'an", learningPlace: item.current_learning_place ?? "", studyYears: item.study_years ?? 0, studyMonths: item.study_months ?? 0 };
     }));
     if (admin) {
-      const { data: profiles } = await supabase.from("profiles").select("id, full_name").eq("role", "ustaz").eq("active", true).order("full_name");
-      setUstazes(profiles ?? []);
+      const [{ data: profiles }, { data: memberships }] = await Promise.all([
+        supabase.from("profiles").select("id, full_name").eq("role", "ustaz").eq("active", true).order("full_name"),
+        supabase.from("exam_group_memberships").select("profile_id,exam_group:exam_groups(code)").not("profile_id", "is", null),
+      ]);
+      const groupByProfile = new Map<string, "boys" | "girls">();
+      (memberships ?? []).forEach((membership) => {
+        const code = (membership.exam_group as unknown as { code?: string } | null)?.code;
+        if ((code === "boys" || code === "girls") && membership.profile_id) groupByProfile.set(membership.profile_id, code);
+      });
+      setUstazes((profiles ?? []).flatMap((profile) => {
+        const profileGroup = groupByProfile.get(profile.id);
+        return profileGroup === groupCode ? [{ ...profile, groupCode: profileGroup }] : [];
+      }));
     }
     setNotice("");
   }
 
-  useEffect(() => { const timer = window.setTimeout(() => { void loadStudents(); }, 0); return () => window.clearTimeout(timer); }, []);
+  useEffect(() => { const timer = window.setTimeout(() => { void loadStudents(); }, 0); return () => window.clearTimeout(timer); }, [groupCode]);
   useEffect(() => {
     const inputs = document.querySelectorAll<HTMLInputElement>(".modal input[type=number]");
     const learningPlaceInput = inputs[inputs.length - 1];
@@ -88,7 +111,7 @@ export function StudentManager({ admin = false }: { admin?: boolean }) {
     printWindow.document.close();
   }
 
-  function closeForm() { setShowForm(false); setEditingStudent(null); setLevel("Qur'an"); setPlace(""); setUstazId(""); }
+  function closeForm() { setShowForm(false); setEditingStudent(null); setLevel("Qur'an"); setPlace(""); setUstazId(""); setGroupCode("boys"); }
   function openCreate() { closeForm(); setShowForm(true); }
   function openEdit(student: Student) { setEditingStudent(student); setLevel(student.level); setPlace(student.learningPlace); setUstazId(student.ustazId); setShowForm(true); }
 
@@ -122,5 +145,6 @@ export function StudentManager({ admin = false }: { admin?: boolean }) {
 
   const list = (items: Student[]) => <div className="student-list">{items.map((student) => <article className="student-row" key={student.registrationId}><div className="avatar">{student.name.slice(0, 1)}</div><div className="student-name"><strong>{student.name}</strong><span>{student.id} · Age {student.age}</span><em>{student.level === "Qur'an" ? `${student.learningPlace} — ${surahs[Number(student.learningPlace) - 1] ?? ""}` : `${student.learningPlace} — ${alifFesels[Number(student.learningPlace) - 1] ?? ""}`}</em></div><span className={`tag ${student.level === "Alif" ? "alif" : "quran"}`}>{student.level}</span><div className="row-actions"><button className="text-button" type="button" onClick={() => openEdit(student)}>Edit</button><button className="text-button delete-button" type="button" onClick={() => removeStudent(student)}>Delete</button></div></article>)}</div>;
 
-  return <><section className="panel"><div className="panel-heading"><div><h2>{admin ? "Students by Ustaz" : "የእኔ ተማሪዎች"}</h2><p>{admin ? "View and manage each Ustaz’s registered students." : "የተመዘገቡ ተማሪዎችን ይመልከቱ፣ ያስተካክሉ ወይም ይሰርዙ።"}</p></div><div className="manager-actions">{admin && <><button className="secondary-button" type="button" onClick={() => exportExcel()}>Export all Excel</button><button className="secondary-button" type="button" onClick={() => exportPdf()}>Export all PDF</button></>}<button className="secondary-button" type="button" onClick={openCreate}>Register student</button></div></div><div className="toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search students" /><span>{shownStudents.length} students</span></div>{admin ? <div className="ustaz-groups">{groupedStudents.map(({ ustaz, students: groupStudents }) => <section className="ustaz-group" key={ustaz.id}><h3><span>{ustaz.full_name} · {groupStudents.length} students</span><span className="group-export-actions"><button className="text-button" type="button" onClick={() => exportExcel(groupStudents, ustaz.full_name)}>Excel</button><button className="text-button" type="button" onClick={() => exportPdf(groupStudents, ustaz.full_name)}>PDF</button></span></h3>{groupStudents.length ? list(groupStudents) : <p>No students registered yet.</p>}</section>)}</div> : list(shownStudents)}</section>{notice && <div className="toast" role="status">{notice}<button type="button" onClick={() => setNotice("")}>×</button></div>}{showForm && <div className="modal-backdrop"><form className="modal" onSubmit={saveStudent}><div className="modal-heading"><h2>{editingStudent ? "Edit student" : "Register student"}</h2><button className="close" type="button" onClick={closeForm}>×</button></div>{admin && <label>Ustaz<select required value={ustazId} onChange={(event) => setUstazId(event.target.value)} disabled={Boolean(editingStudent)}><option value="">Select Ustaz</option>{ustazes.map((ustaz) => <option key={ustaz.id} value={ustaz.id}>{ustaz.full_name}</option>)}</select></label>}<label>Student full name<input name="name" required defaultValue={editingStudent?.name ?? ""} /></label><div className="form-grid"><label>Age<input name="age" required type="number" min="3" max="30" defaultValue={editingStudent?.age ?? ""} /></label><label>Study duration<div className="duration-inputs"><input name="studyYears" required type="number" min="0" max="30" defaultValue={editingStudent?.studyYears ?? 0} /><span>years</span><input name="studyMonths" required type="number" min="0" max="11" defaultValue={editingStudent?.studyMonths ?? 0} /><span>months</span></div></label></div><label>Learning level<select value={level} onChange={(event) => { setLevel(event.target.value as "Alif" | "Qur'an"); setPlace(""); }}><option value="Alif">Alif</option><option value="Qur'an">Qur'an</option></select></label><label>{level === "Qur'an" ? "Surah number (1–114)" : "Fesel number (1–20)"}<input required type="number" min="1" max={level === "Qur'an" ? 114 : 20} value={place} onChange={(event) => setPlace(event.target.value)} /></label><div className="place-preview"><span>Selected</span><strong>{level === "Qur'an" ? (place && surahs[Number(place) - 1] ? `${place} — ${surahs[Number(place) - 1]}` : "Enter a Surah number") : (place ? `ፈስል ${place}` : "Enter a Fesel number")}</strong></div><div className="modal-actions"><button className="secondary-button" type="button" onClick={closeForm}>Cancel</button><button type="submit">Save student</button></div></form></div>}</>;
+  const availableUstazes = ustazes.filter((ustaz) => ustaz.groupCode === groupCode);
+  return <><section className="panel"><div className="panel-heading"><div><h2>{admin ? "Students by Ustaz" : "የእኔ ተማሪዎች"}</h2><p>{admin ? "View and manage each Ustaz’s registered students." : "የተመዘገቡ ተማሪዎችን ይመልከቱ፣ ያስተካክሉ ወይም ይሰርዙ።"}</p></div><div className="manager-actions">{admin && <><button className="secondary-button" type="button" onClick={() => exportExcel()}>Export all Excel</button><button className="secondary-button" type="button" onClick={() => exportPdf()}>Export all PDF</button></>}<button className="secondary-button" type="button" onClick={openCreate}>Register student</button></div></div><div className="toolbar"><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search students" /><span>{shownStudents.length} students</span></div>{admin ? <div className="ustaz-groups">{groupedStudents.map(({ ustaz, students: groupStudents }) => <section className="ustaz-group" key={ustaz.id}><h3><span>{ustaz.full_name} · {groupStudents.length} students</span><span className="group-export-actions"><button className="text-button" type="button" onClick={() => exportExcel(groupStudents, ustaz.full_name)}>Excel</button><button className="text-button" type="button" onClick={() => exportPdf(groupStudents, ustaz.full_name)}>PDF</button></span></h3>{groupStudents.length ? list(groupStudents) : <p>No students registered yet.</p>}</section>)}</div> : list(shownStudents)}</section>{notice && <div className="toast" role="status">{notice}<button type="button" onClick={() => setNotice("")}>×</button></div>}{showForm && <div className="modal-backdrop"><form className="modal" onSubmit={saveStudent}><div className="modal-heading"><h2>{editingStudent ? "Edit student" : "Register student"}</h2><button className="close" type="button" onClick={closeForm}>×</button></div>{admin && <><label>Examination group<select value={groupCode} onChange={(event) => { const next = event.target.value as "boys" | "girls"; setGroupCode(next); setUstazId(""); }}><option value="boys">Boys</option><option value="girls">Girls</option></select></label><label>Ustaz<select required value={ustazId} onChange={(event) => setUstazId(event.target.value)} disabled={Boolean(editingStudent)}><option value="">Select Ustaz</option>{availableUstazes.map((ustaz) => <option key={ustaz.id} value={ustaz.id}>{ustaz.full_name}</option>)}</select></label></>}{!admin || groupCode === "boys" ? null : <p className="form-help">Girls students do not receive homework marks.</p>}<label>Student full name<input name="name" required defaultValue={editingStudent?.name ?? ""} /></label><div className="form-grid"><label>Age<input name="age" required type="number" min="3" max="30" defaultValue={editingStudent?.age ?? ""} /></label><label>Study duration<div className="duration-inputs"><input name="studyYears" required type="number" min="0" max="30" defaultValue={editingStudent?.studyYears ?? 0} /><span>years</span><input name="studyMonths" required type="number" min="0" max="11" defaultValue={editingStudent?.studyMonths ?? 0} /><span>months</span></div></label></div><label>Learning level<select value={level} onChange={(event) => { setLevel(event.target.value as "Alif" | "Qur'an"); setPlace(""); }}><option value="Alif">Alif</option><option value="Qur'an">Qur'an</option></select></label><label>{level === "Qur'an" ? "Surah number (1–114)" : "Fesel number (1–20)"}<input required type="number" min="1" max={level === "Qur'an" ? 114 : 20} value={place} onChange={(event) => setPlace(event.target.value)} /></label><div className="place-preview"><span>Selected</span><strong>{level === "Qur'an" ? (place && surahs[Number(place) - 1] ? `${place} — ${surahs[Number(place) - 1]}` : "Enter a Surah number") : (place ? `ፈስል ${place}` : "Enter a Fesel number")}</strong></div><div className="modal-actions"><button className="secondary-button" type="button" onClick={closeForm}>Cancel</button><button type="submit">Save student</button></div></form></div>}</>;
 }

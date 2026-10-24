@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/admin-shell";
 import { createClient } from "@/lib/supabase/client";
+import { getExamGroupScope } from "@/lib/exam-group-scope";
+import { useSelectedExamGroup } from "@/lib/use-selected-exam-group";
 
-type Registration = { id: string; registered_age: number | null };
+type Registration = { id: string; student_id: string; registered_age: number | null };
 type QuranResult = { student_registration_id: string; status: "draft" | "submitted"; total_mark: number | null };
 type SupplementalResult = { student_registration_id: string; hisnul_muslim_mark: number | null; homework_mark: number | null };
 
@@ -28,6 +30,7 @@ function formatAverage(value: number | null) {
 }
 
 export default function AdminAgeResultsPage() {
+  const groupCode = useSelectedExamGroup();
   const [periodName, setPeriodName] = useState("");
   const [rows, setRows] = useState<AgeResult[]>([]);
   const [message, setMessage] = useState("Loading age results...");
@@ -48,7 +51,7 @@ export default function AdminAgeResultsPage() {
     }
 
     const [registrationQuery, resultQuery, supplementalQuery] = await Promise.all([
-      supabase.from("student_registrations").select("id,registered_age").eq("exam_period_id", period.id),
+      supabase.from("student_registrations").select("id,student_id,registered_age").eq("exam_period_id", period.id),
       supabase.from("exam_results").select("student_registration_id,status,total_mark").eq("exam_period_id", period.id).eq("status", "submitted"),
       supabase.from("exam_supplemental_results").select("student_registration_id,hisnul_muslim_mark,homework_mark"),
     ]);
@@ -58,8 +61,10 @@ export default function AdminAgeResultsPage() {
       return;
     }
 
+    const scope = await getExamGroupScope(supabase, groupCode);
+    if (scope.error) { setMessage(scope.error.message); return; }
     setPeriodName(period.name ?? "Current examination");
-    const registrations = (registrationQuery.data ?? []) as Registration[];
+    const registrations = ((registrationQuery.data ?? []) as Registration[]).filter((registration) => scope.studentIds.has(registration.student_id));
     const quranResults = (resultQuery.data ?? []) as QuranResult[];
     const supplementalResults = (supplementalQuery.data ?? []) as SupplementalResult[];
     const ageByRegistration = new Map(registrations.map((registration) => [registration.id, registration.registered_age]));
@@ -95,7 +100,7 @@ export default function AdminAgeResultsPage() {
       homeworkAverage: average(values.homework),
     })));
     setMessage("");
-  }, []);
+  }, [groupCode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void load(); }, 0);
@@ -111,7 +116,7 @@ export default function AdminAgeResultsPage() {
 
   return <AdminShell active="ageResults">
     <header className="workspace-header">
-      <div><p className="eyebrow">EXAM ADMIN</p><h1>Results by age</h1><p>Compare the average Qur’an, Hisnul Muslim, and Homework results for each student age.</p>{periodName && <small className="age-results-period">{periodName}</small>}</div>
+      <div><p className="eyebrow">EXAM ADMIN</p><h1>Results by age</h1><p>{groupCode === "boys" ? "Compare the average Qur’an, Hisnul Muslim, and Homework results for each student age." : "Compare the average Qur’an results for each student age."}</p>{periodName && <small className="age-results-period">{periodName}</small>}</div>
       <button className="secondary-button" type="button" onClick={() => void load()}>Refresh results</button>
     </header>
     {message && <p className="admin-message">{message}</p>}
@@ -119,12 +124,11 @@ export default function AdminAgeResultsPage() {
       <section className="result-metrics age-result-metrics">
         <article><span>Registered students</span><strong>{totals.registered}</strong></article>
         <article><span>Qur’an results</span><strong>{totals.quran}</strong></article>
-        <article><span>Hisnul Muslim filled</span><strong>{totals.hisnul}</strong></article>
-        <article><span>Homework filled</span><strong>{totals.homework}</strong></article>
+        {groupCode === "boys" && <><article><span>Hisnul Muslim filled</span><strong>{totals.hisnul}</strong></article><article><span>Homework filled</span><strong>{totals.homework}</strong></article></>}
       </section>
       <section className="admin-card age-results-card">
-        <div className="card-title"><div><h2>Average results by age</h2><p>Qur’an is out of 100, Hisnul Muslim is out of 20, and Homework is out of 5.</p></div></div>
-        <div className="age-results-table-wrap"><table className="age-results-table"><thead><tr><th>Age</th><th>Registered</th><th>Qur’an average / 100</th><th>Hisnul Muslim average / 20</th><th>Homework average / 5</th></tr></thead><tbody>{rows.map((row) => <tr key={row.age}><th>{row.age} years</th><td>{row.registered}</td><td><strong>{formatAverage(row.quranAverage)}</strong><small>{row.quranCount} submitted</small></td><td><strong>{formatAverage(row.hisnulAverage)}</strong><small>{row.hisnulCount} filled</small></td><td><strong>{formatAverage(row.homeworkAverage)}</strong><small>{row.homeworkCount} filled</small></td></tr>)}</tbody></table></div>
+        <div className="card-title"><div><h2>Average results by age</h2><p>{groupCode === "boys" ? "Qur’an is out of 100, Hisnul Muslim is out of 20, and Homework is out of 5." : "Qur’an is out of 100."}</p></div></div>
+        <div className="age-results-table-wrap"><table className="age-results-table"><thead><tr><th>Age</th><th>Registered</th><th>Qur’an average / 100</th>{groupCode === "boys" && <><th>Hisnul Muslim average / 20</th><th>Homework average / 5</th></>}</tr></thead><tbody>{rows.map((row) => <tr key={row.age}><th>{row.age} years</th><td>{row.registered}</td><td><strong>{formatAverage(row.quranAverage)}</strong><small>{row.quranCount} submitted</small></td>{groupCode === "boys" && <><td><strong>{formatAverage(row.hisnulAverage)}</strong><small>{row.hisnulCount} filled</small></td><td><strong>{formatAverage(row.homeworkAverage)}</strong><small>{row.homeworkCount} filled</small></td></>}</tr>)}</tbody></table></div>
         {!rows.length && <p className="empty-state">No age data is available for this examination.</p>}
       </section>
     </>}

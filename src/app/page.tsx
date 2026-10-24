@@ -27,6 +27,14 @@ type RegistrationPeriod = {
   registration_override: "automatic" | "force_open" | "force_closed";
 };
 
+const nuraniyaLessons = [
+  "الدرس الأول", "الدرس الثاني", "الدرس الثالث", "الدرس الرابع",
+  "الدرس الخامس", "الدرس السادس", "الدرس السابع", "الدرس الثامن",
+  "الدرس التاسع", "الدرس العاشر", "الدرس الحادي عشر", "الدرس الثاني عشر",
+  "الدرس الثالث عشر", "الدرس الرابع عشر", "الدرس الخامس عشر", "الدرس السادس عشر",
+  "الدرس السابع عشر",
+];
+
 function registrationIsOpen(period: RegistrationPeriod) {
   if (period.registration_override === "force_open") return true;
   if (period.registration_override === "force_closed") return false;
@@ -50,6 +58,7 @@ export default function Home() {
   const [activePeriodId, setActivePeriodId] = useState<string | null>(null);
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [role, setRole] = useState<Role | null>(null);
+  const [groupCode, setGroupCode] = useState<"boys" | "girls">("boys");
   const [displayName, setDisplayName] = useState("አስታዝ");
   const [learningLevel, setLearningLevel] = useState<"Alif" | "Qur'an">(
     "Qur'an"
@@ -80,6 +89,15 @@ export default function Home() {
       const userRole = profile.role as Role;
       setRole(userRole);
       setDisplayName(profile.full_name);
+      if (userRole === "ustaz") {
+        const { data: membership } = await supabase
+          .from("exam_group_memberships")
+          .select("exam_group:exam_groups!inner(code)")
+          .eq("profile_id", user.id)
+          .maybeSingle();
+        const group = membership?.exam_group as unknown as { code?: string } | null;
+        if (group?.code === "girls") setGroupCode("girls");
+      }
       const { data: activePeriod } = await supabase
         .from("exam_periods")
         .select(
@@ -264,6 +282,15 @@ export default function Home() {
       : placeNumber
       ? `የቃዒዳ በግዳዲያ ፈስል ${placeNumber}`
       : "የፈስል ቁጥር ያስገቡ";
+  const isGirls = groupCode === "girls";
+  const learningLevelLabel = (level: Student["level"]) =>
+    level === "Alif" && isGirls ? "ቃኢዳ ኑራኒያ" : level === "Alif" ? "አሊፍ" : "ቁርአን";
+  const learningPlaceLabel = (student: Student) =>
+    student.level === "Alif" && isGirls
+      ? `${student.learningPlace} — ${nuraniyaLessons[Number(student.learningPlace) - 1] ?? ""}`
+      : student.level === "Qur'an"
+      ? `${student.learningPlace} — ${surahs[Number(student.learningPlace) - 1] ?? ""}`
+      : `ፈስል ${student.learningPlace}`;
 
   return (
     <main className="app-shell">
@@ -295,22 +322,17 @@ export default function Home() {
           >
             የእኔ ተማሪዎች
           </button>
-          {role === "ustaz" && (
-            <button
-              className="nav-link"
-              type="button"
-              onClick={() => window.location.assign("/results")}
-            >
-              የተማሪዎቼ ውጤት
-            </button>
-          )}
+          {role === "ustaz" && groupCode === "boys" && <>
+            <button className="nav-link" type="button" onClick={() => window.location.assign("/school-information")}>የትምህርት ቤት መረጃ</button>
+            <button className="nav-link" type="button" onClick={() => window.location.assign("/results")}>የተማሪዎቼ ውጤት</button>
+          </>}
         </nav>
         <div className="profile-card">
           <strong>{displayName}</strong>
           <span>{role === "admin" ? "የፈተና አስተዳዳሪ" : "አስታዝ"}</span>
           {role === "admin" && <a href="/admin/users">Admin setup</a>}
-          <button type="button" onClick={signOut}>
-            ውጣ
+          <button className="sign-out-button" type="button" onClick={signOut}>
+            Sign out
           </button>
         </div>
       </aside>
@@ -320,22 +342,20 @@ export default function Home() {
           <div>
             <p className="eyebrow">አሁን ያለው ፈተና</p>
             <h1>የቁርአን ክለሳ ፈተና</h1>
-            <p className="muted">3ኛ ሩብ ዓመት · 2018 ዓ.ም</p>
+            <p className="muted">{isGirls ? "1ኛ ሩብ ዓመት · 2019 ዓ.ም" : "3ኛ ሩብ ዓመት · 2018 ዓ.ም"}</p>
           </div>
           <button
-            className="mobile-menu"
+            className={`mobile-menu ${showMobileMenu ? "menu-open" : ""}`}
             type="button"
-            aria-label="Open menu"
+            aria-label={showMobileMenu ? "Close menu" : "Open menu"}
             onClick={() => setShowMobileMenu((open) => !open)}
-          >
-            ☰
-          </button>
+          >{showMobileMenu ? "×" : "☰"}</button>
         </header>
         <section className="period-banner">
           <div>
             <span className="status-dot" />{" "}
             {registrationOpen
-              ? "ምዝገባ ክፍት ነው (ምዝገባ ሰኞ ነሃሴ 4 ሰለሚዘጋ በጊዜ ያጠናቁ!)"
+              ? isGirls ? "ምዝገባ ክፍት ነው (ምዝገባ ማክሰኞ ጥቅምት 17 ሰለሚዘጋ በጊዜ ያጠናቁ!)" : "ምዝገባ ክፍት ነው (ምዝገባ ሰኞ ነሃሴ 4 ሰለሚዘጋ በጊዜ ያጠናቁ!)"
               : "ምዝገባ ተዘግቷል"}
           </div>
           <button onClick={openAdd} disabled={!registrationOpen}>
@@ -356,7 +376,7 @@ export default function Home() {
             <small>ሱራ እየተማሩ</small>
           </article>
           <article>
-            <span>የአሊፍ ተማሪዎች</span>
+            <span>{isGirls ? "የቃኢዳ ኑራኒያ ተማሪዎች" : "የአሊፍ ተማሪዎች"}</span>
             <strong>
               {students.filter((student) => student.level === "Alif").length}
             </strong>
@@ -392,11 +412,7 @@ export default function Home() {
                     {student.id} · ዕድሜ {student.age}
                   </span>
                   <em>
-                    {student.level === "Qur'an"
-                      ? `${student.learningPlace} — ${
-                          surahs[Number(student.learningPlace) - 1] ?? ""
-                        }`
-                      : `ፈስል ${student.learningPlace}`}
+                    {learningPlaceLabel(student)}
                   </em>
                 </div>
                 <span
@@ -404,7 +420,7 @@ export default function Home() {
                     student.level === "Alif" ? "alif" : "quran"
                   }`}
                 >
-                  {student.level === "Alif" ? "አሊፍ" : "ቁርአን"}
+                  {learningLevelLabel(student.level)}
                 </span>
                 <div className="row-actions">
                   <button
@@ -446,7 +462,7 @@ export default function Home() {
                 name="name"
                 required
                 defaultValue={editingStudent?.name ?? ""}
-                placeholder="ለምሳሌ፦ ኡመር መሐመድ"
+                placeholder={isGirls ? "ለምሳሌ፦ ሀናን አብደላህ" : "ለምሳሌ፦ ኡመር መሐመድ"}
               />
             </label>
             <p className="name-warning">የተማሪዎችን ስም ከአማርኛ ውጪ መጻፍ የተከለከለ ነው!!!</p>
@@ -463,7 +479,7 @@ export default function Home() {
                 />
               </label>
               <label>
-                በመድረሳ የቆየበት ጊዜ
+                {isGirls ? "በመድረሳ የቆየችበት ጊዜ" : "በመድረሳ የቆየበት ጊዜ"}
                 <div className="duration-inputs">
                   <input
                     name="studyYears"
@@ -487,7 +503,7 @@ export default function Home() {
               </label>
             </div>
             <label>
-              አሁን ያለበት የትምህርት ደረጃ
+              {isGirls ? "አሁን ያለችበት የትምህርት ደረጃ" : "አሁን ያለበት የትምህርት ደረጃ"}
               <select
                 name="level"
                 value={learningLevel}
@@ -496,20 +512,20 @@ export default function Home() {
                   setPlaceNumber("");
                 }}
               >
-                <option value="Alif">አሊፍ</option>
+                <option value="Alif">{isGirls ? "ቃኢዳ ኑራኒያ" : "አሊፍ"}</option>
                 <option value="Qur'an">ቁርአን</option>
               </select>
             </label>
             <label>
               {learningLevel === "Qur'an"
                 ? "የሱራ ቁጥር (1–114)"
-                : "የቃዒዳ ፈስል ቁጥር (1–27)"}
+                : isGirls ? "የدرس ቁጥር (1–17)" : "የቃዒዳ ፈስል ቁጥር (1–27)"}
               <input
                 name="learningPlace"
                 required
                 type="number"
                 min="1"
-                max={learningLevel === "Qur'an" ? 114 : 27}
+                max={learningLevel === "Qur'an" ? 114 : isGirls ? 17 : 27}
                 value={placeNumber}
                 onChange={(event) => setPlaceNumber(event.target.value)}
               />
@@ -519,10 +535,10 @@ export default function Home() {
               <strong>
                 {learningLevel === "Alif"
                   ? placeNumber
-                    ? `${placeNumber} — ${
-                        alifFesels[Number(placeNumber) - 1] ?? ""
-                      }`
-                    : "የፈስል ቁጥር ያስገቡ"
+                    ? isGirls
+                      ? `${placeNumber} — ${nuraniyaLessons[Number(placeNumber) - 1] ?? ""}`
+                      : `${placeNumber} — ${alifFesels[Number(placeNumber) - 1] ?? ""}`
+                    : isGirls ? "የدرس ቁጥር ያስገቡ" : "የፈስል ቁጥር ያስገቡ"
                   : placementPreview}
               </strong>
             </div>

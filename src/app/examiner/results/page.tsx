@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ExaminerShell } from "@/components/examiner-shell";
+import { ExaminerShell, useExaminerGroup } from "@/components/examiner-shell";
 import { createClient } from "@/lib/supabase/client";
 import { alifFesels } from "@/lib/alif-fesels";
 import { surahs } from "@/lib/surahs";
@@ -49,6 +49,7 @@ function revisionLabel(result: ResultRow) {
 }
 
 export default function ExaminerResultsPage() {
+  const group = useExaminerGroup();
   const [assignments, setAssignments] = useState<StudentAssignment[]>([]);
   const [quranResults, setQuranResults] = useState<Map<string, ResultRow>>(new Map());
   const [supplemental, setSupplemental] = useState<Map<string, SupplementalRow>>(new Map());
@@ -120,8 +121,7 @@ export default function ExaminerResultsPage() {
               <div>
                 <h2>{name}</h2>
                 <small>Qur’an exam: {quran ? `${Number(quran.total_mark).toFixed(2)} / 100` : "Not entered"}</small>
-                <small>Hisnul Muslim: {Number(extra?.hisnul_muslim_mark ?? 0).toFixed(2)} / 20</small>
-                <small>Homework: {Number(extra?.homework_mark ?? 0).toFixed(2)} / 5</small>
+                {group === "boys" && <><small>Hisnul Muslim: {Number(extra?.hisnul_muslim_mark ?? 0).toFixed(2)} / 20</small><small>Homework: {Number(extra?.homework_mark ?? 0).toFixed(2)} / 5</small></>}
                 {quran && <strong>Class: {resultClassLabel(quran.result_class)}</strong>}
                 {quran && <small>የሚከለስበት ቦታ: {revisionLabel(quran)}</small>}
                 {quran?.examiner_comment && <small>{quran.examiner_comment}</small>}

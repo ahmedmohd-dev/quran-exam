@@ -5,6 +5,7 @@ import { ReactNode, useEffect, useState } from "react";
 import logo from "../../assets/logo.jpg";
 import { SignOutButton } from "@/components/sign-out-button";
 import { createClient } from "@/lib/supabase/client";
+import { ExamGroupSwitcher } from "@/components/exam-group-switcher";
 
 export function DirectorShell({ children }: { children: ReactNode }) {
   const [name, setName] = useState("የመድረሳ አስተዳዳሪ");
@@ -27,6 +28,11 @@ export function DirectorShell({ children }: { children: ReactNode }) {
           <span>مركز علي الحيدر</span>
         </div>
         <p>የመድረሳ አስተዳዳሪ</p>
+        <ExamGroupSwitcher />
+        <nav className="director-nav">
+          <a href="/director">የፈተና ሪፖርት</a>
+          <a href="/director/attendance">የመገኘት እና ፈቃድ</a>
+        </nav>
         <div className="profile-card">
           <strong>{name}</strong>
           <span>አስተዳዳሪ</span>

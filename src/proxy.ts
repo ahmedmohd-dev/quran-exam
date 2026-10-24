@@ -2,6 +2,10 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function proxy(request: NextRequest) {
+  if (request.nextUrl.pathname === "/api/auth/sign-in") {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -25,7 +29,13 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
   if (user) {
-    const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).maybeSingle();
+    const { data: profile } = await supabase.from("profiles").select("role, active").eq("id", user.id).maybeSingle();
+    if (profile?.active === false && request.nextUrl.pathname !== "/login") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/login";
+      url.searchParams.set("error", "This account is disabled.");
+      return NextResponse.redirect(url);
+    }
     const { data: accessPeriod } = profile?.role === "ustaz"
       ? await supabase.from("exam_periods").select("ustaz_access_blocked").order("created_at", { ascending: false }).limit(1).maybeSingle()
       : { data: null };
@@ -60,8 +70,14 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(url);
     }
     if (request.nextUrl.pathname === "/" && profile?.role === "ustaz") {
+      const { data: membership } = await supabase
+        .from("exam_group_memberships")
+        .select("exam_group:exam_groups!inner(code)")
+        .eq("profile_id", user.id)
+        .maybeSingle();
+      const group = membership?.exam_group as unknown as { code?: string } | null;
       const url = request.nextUrl.clone();
-      url.pathname = "/school-information";
+      url.pathname = group?.code === "girls" ? "/registration" : "/school-information";
       return NextResponse.redirect(url);
     }
   }

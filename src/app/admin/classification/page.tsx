@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/admin-shell";
 import { createClient } from "@/lib/supabase/client";
+import { getExamGroupScope } from "@/lib/exam-group-scope";
+import { useSelectedExamGroup } from "@/lib/use-selected-exam-group";
 
 type Level = "Alif" | "Qur'an";
 type Ustaz = { id: string; full_name: string };
@@ -69,6 +71,7 @@ function buildRanges(group: Group, requestedCount: number) {
 }
 
 export default function ClassificationPage() {
+  const groupCode = useSelectedExamGroup();
   const [periodId, setPeriodId] = useState<string | null>(null);
   const [ustazes, setUstazes] = useState<Ustaz[]>([]);
   const [bigUstazIds, setBigUstazIds] = useState<string[]>([]);
@@ -89,21 +92,25 @@ export default function ClassificationPage() {
     setPeriodId(period.id);
     const [ustazResult, bigResult, registrationResult, rangeResult] = await Promise.all([
       supabase.from("profiles").select("id, full_name").eq("role", "ustaz").eq("active", true).order("full_name"),
-      supabase.from("exam_period_big_ustazes").select("ustaz_id").eq("exam_period_id", period.id),
-      supabase.from("student_registrations").select("id, ustaz_id, current_learning_level, current_learning_place, student:students(student_number, full_name), ustaz:profiles!student_registrations_ustaz_id_fkey(full_name)").eq("exam_period_id", period.id).order("created_at", { ascending: true }),
-      supabase.from("exam_assignment_groups").select("id, group_key, place_start, place_end").eq("exam_period_id", period.id).order("place_start"),
+      supabase.from("exam_period_big_ustazes").select("ustaz_id,exam_group_id").eq("exam_period_id", period.id),
+      supabase.from("student_registrations").select("id, student_id, ustaz_id, current_learning_level, current_learning_place, student:students(student_number, full_name), ustaz:profiles!student_registrations_ustaz_id_fkey(full_name)").eq("exam_period_id", period.id).order("created_at", { ascending: true }),
+      supabase.from("exam_assignment_groups").select("id, group_key, place_start, place_end, exam_group_id").eq("exam_period_id", period.id).order("place_start"),
     ]);
     if (ustazResult.error || bigResult.error || registrationResult.error || rangeResult.error) {
       setMessage(ustazResult.error?.message ?? bigResult.error?.message ?? registrationResult.error?.message ?? rangeResult.error?.message ?? "Could not load classification data.");
       return;
     }
+    const scope = await getExamGroupScope(supabase, groupCode);
+    if (scope.error) { setMessage(scope.error.message); return; }
+    if (!scope.groupId) { setMessage("Examination group is not configured."); return; }
     const loadedRanges = rangeResult.data ?? [];
-    setUstazes(ustazResult.data ?? []);
-    setBigUstazIds((bigResult.data ?? []).map((item) => item.ustaz_id));
-    setSavedRanges(loadedRanges);
-    const loadedCounts = loadedRanges.reduce<Record<string, number>>((counts, range) => ({ ...counts, [range.group_key]: (counts[range.group_key] ?? 0) + 1 }), {});
+    setUstazes((ustazResult.data ?? []).filter((item) => scope.profileIds.has(item.id)));
+    setBigUstazIds((bigResult.data ?? []).filter((item) => item.exam_group_id === scope.groupId).map((item) => item.ustaz_id).filter((id) => scope.profileIds.has(id)));
+    const scopedRanges = loadedRanges.filter((range) => range.exam_group_id === scope.groupId);
+    setSavedRanges(scopedRanges);
+    const loadedCounts = scopedRanges.reduce<Record<string, number>>((counts, range) => ({ ...counts, [range.group_key]: (counts[range.group_key] ?? 0) + 1 }), {});
     setRangeCounts(loadedCounts);
-    setStudents((registrationResult.data ?? []).map((item) => {
+    setStudents((registrationResult.data ?? []).filter((item) => scope.studentIds.has(item.student_id)).map((item) => {
       const student = item.student as unknown as { student_number: string; full_name: string };
       const ustaz = item.ustaz as unknown as { full_name: string } | null;
       return { registrationId: item.id, name: student.full_name, number: student.student_number, ustazId: item.ustaz_id, ustazName: ustaz?.full_name ?? "", level: item.current_learning_level === "alif" ? "Alif" : "Qur'an", place: Number(item.current_learning_place) };
@@ -111,7 +118,7 @@ export default function ClassificationPage() {
     setMessage("");
   }
 
-  useEffect(() => { const timer = window.setTimeout(() => { void loadData(); }, 0); return () => window.clearTimeout(timer); }, []);
+  useEffect(() => { const timer = window.setTimeout(() => { void loadData(); }, 0); return () => window.clearTimeout(timer); }, [groupCode]);
 
   const regularStudents = useMemo(() => students.filter((student) => !bigUstazIds.includes(student.ustazId)), [students, bigUstazIds]);
   const bigStudents = useMemo(() => students.filter((student) => bigUstazIds.includes(student.ustazId)), [students, bigUstazIds]);
@@ -124,8 +131,10 @@ export default function ClassificationPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setSaving(true);
-    const { error: deleteError } = await supabase.from("exam_period_big_ustazes").delete().eq("exam_period_id", periodId);
-    const { error } = deleteError ? { error: deleteError } : await supabase.from("exam_period_big_ustazes").insert(bigUstazIds.map((ustazId) => ({ exam_period_id: periodId, ustaz_id: ustazId, selected_by: user.id })));
+    const scope = await getExamGroupScope(supabase, groupCode);
+    if (scope.error || !scope.groupId) { setMessage(scope.error?.message ?? "Examination group is not configured."); setSaving(false); return; }
+    const { error: deleteError } = await supabase.from("exam_period_big_ustazes").delete().eq("exam_period_id", periodId).eq("exam_group_id", scope.groupId);
+    const { error } = deleteError ? { error: deleteError } : await supabase.from("exam_period_big_ustazes").insert(bigUstazIds.map((ustazId) => ({ exam_period_id: periodId, exam_group_id: scope.groupId, ustaz_id: ustazId, selected_by: user.id })));
     setSaving(false);
     setMessage(error ? error.message : "Big Ustazes saved. Their students stay separate from regular classification.");
     if (!error) await loadData();
@@ -139,12 +148,14 @@ export default function ClassificationPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     setSaving(true);
-    const { error: deleteError } = await supabase.from("exam_assignment_groups").delete().eq("exam_period_id", periodId).eq("group_key", group.key);
-    const { error } = deleteError ? { error: deleteError } : await supabase.from("exam_assignment_groups").insert(ranges.map((range) => ({ exam_period_id: periodId, group_key: group.key, group_title: group.title, group_order: group.order, learning_level: group.level, place_start: range.start, place_end: range.end, created_by: user.id })));
+    const scope = await getExamGroupScope(supabase, groupCode);
+    if (scope.error || !scope.groupId) { setMessage(scope.error?.message ?? "Examination group is not configured."); setSaving(false); return; }
+    const { error: deleteError } = await supabase.from("exam_assignment_groups").delete().eq("exam_period_id", periodId).eq("exam_group_id", scope.groupId).eq("group_key", group.key);
+    const { error } = deleteError ? { error: deleteError } : await supabase.from("exam_assignment_groups").insert(ranges.map((range) => ({ exam_period_id: periodId, exam_group_id: scope.groupId, group_key: group.key, group_title: group.title, group_order: group.order, learning_level: group.level, place_start: range.start, place_end: range.end, created_by: user.id })));
     setSaving(false);
     setMessage(error ? error.message : `${group.title}: ${ranges.length} examination range(s) saved.`);
     if (!error) await loadData();
   }
 
-  return <AdminShell active="classification"><header className="workspace-header"><div><p className="eyebrow">EXAM ADMIN - PHASE 2</p><h1>Student classification</h1><p>Separate Big students first, then choose how many Examiners will cover each regular group.</p></div><div className="workspace-step"><span>1</span><div><strong>Classification</strong><small>{regularStudents.length} regular students</small></div></div></header><section className="admin-card"><div className="card-title"><div><h2>Big Ustazes</h2><p>Select the 3 Ustazes whose students must remain in separate groups.</p></div><button className="primary-button" type="button" onClick={saveBigUstazes} disabled={saving}>{saving ? "Saving..." : "Save Big Ustazes"}</button></div>{message && <p className="admin-message">{message}</p>}<div className="big-ustaz-options">{ustazes.map((ustaz) => <label key={ustaz.id}><input type="checkbox" checked={bigUstazIds.includes(ustaz.id)} onChange={() => setBigUstazIds((current) => current.includes(ustaz.id) ? current.filter((id) => id !== ustaz.id) : current.length < 3 ? [...current, ustaz.id] : current)} /><span>{ustaz.full_name}</span></label>)}</div></section><section className="classification-groups">{groups.map((group) => { const maximumRanges = Math.max(1, new Set(group.students.map((student) => student.place)).size); const requestedCount = Math.max(1, Math.min(rangeCounts[group.key] ?? 1, maximumRanges)); const preview = buildRanges(group, requestedCount); const configured = savedRanges.filter((range) => range.group_key === group.key); return <article className="admin-card classification-group" key={group.key}><div className="card-title"><div><h2>{group.title}</h2><p>{group.students.length} students</p></div><label className="range-count">Examiners<input type="number" min="1" max={maximumRanges} defaultValue={requestedCount} onChange={(event) => { const numeric = Number(event.target.value); if (event.target.value && Number.isFinite(numeric)) setRangeCounts((current) => ({ ...current, [group.key]: Math.max(1, Math.min(maximumRanges, numeric)) })); }} onBlur={(event) => { const numeric = Number(event.currentTarget.value); const safe = Number.isFinite(numeric) && numeric >= 1 ? Math.min(maximumRanges, numeric) : 1; event.currentTarget.value = String(safe); setRangeCounts((current) => ({ ...current, [group.key]: safe })); }} /></label></div><div className="range-preview">{preview.map((range) => <span key={`${range.start}-${range.end}`}>{range.start}-{range.end} <small>{range.students} students</small></span>)}</div><button className="secondary-button" type="button" onClick={() => void saveRanges(group)} disabled={saving}>Save these ranges</button>{configured.length > 0 && <p className="muted">Saved: {configured.map((range) => `${range.place_start}-${range.place_end}`).join(", ")}</p>}</article>; })}</section><section className="classification-groups">{bigGroups.map((group) => <article className="admin-card classification-group big-group" key={group.ustaz?.id ?? "big"}><div className="card-title"><h2>Big - {group.ustaz?.full_name ?? "Ustaz"}</h2><strong>{group.students.length}</strong></div>{group.students.slice(0, 8).map((student) => <div className="classification-student" key={student.registrationId}><strong>{student.name}</strong><small>{student.number} - {student.level} - place {student.place}</small></div>)}{group.students.length > 8 && <p>Showing 8 of {group.students.length}.</p>}{group.students.length === 0 && <p>No students in this group.</p>}</article>)}</section></AdminShell>;
+  return <AdminShell active="classification"><header className="workspace-header"><div><p className="eyebrow">EXAM ADMIN - PHASE 2</p><h1>Student classification</h1><p>{groupCode === "girls" ? "Choose how many Examiners will cover each Girls group." : "Separate Big students first, then choose how many Examiners will cover each regular group."}</p></div><div className="workspace-step"><span>1</span><div><strong>Classification</strong><small>{regularStudents.length} regular students</small></div></div></header>{groupCode === "boys" && <section className="admin-card"><div className="card-title"><div><h2>Big Ustazes</h2><p>Select the 3 Ustazes whose students must remain in separate groups.</p></div><button className="primary-button" type="button" onClick={saveBigUstazes} disabled={saving}>{saving ? "Saving..." : "Save Big Ustazes"}</button></div>{message && <p className="admin-message">{message}</p>}<div className="big-ustaz-options">{ustazes.map((ustaz) => <label key={ustaz.id}><input type="checkbox" checked={bigUstazIds.includes(ustaz.id)} onChange={() => setBigUstazIds((current) => current.includes(ustaz.id) ? current.filter((id) => id !== ustaz.id) : current.length < 3 ? [...current, ustaz.id] : current)} /><span>{ustaz.full_name}</span></label>)}</div></section>}{message && groupCode === "girls" && <p className="admin-message">{message}</p>}<section className="classification-groups">{groups.map((group) => { const maximumRanges = Math.max(1, new Set(group.students.map((student) => student.place)).size); const requestedCount = Math.max(1, Math.min(rangeCounts[group.key] ?? 1, maximumRanges)); const preview = buildRanges(group, requestedCount); const configured = savedRanges.filter((range) => range.group_key === group.key); return <article className="admin-card classification-group" key={group.key}><div className="card-title"><div><h2>{group.title}</h2><p>{group.students.length} students</p></div><label className="range-count">Examiners<input type="number" min="1" max={maximumRanges} defaultValue={requestedCount} onChange={(event) => { const numeric = Number(event.target.value); if (event.target.value && Number.isFinite(numeric)) setRangeCounts((current) => ({ ...current, [group.key]: Math.max(1, Math.min(maximumRanges, numeric)) })); }} onBlur={(event) => { const numeric = Number(event.currentTarget.value); const safe = Number.isFinite(numeric) && numeric >= 1 ? Math.min(maximumRanges, numeric) : 1; event.currentTarget.value = String(safe); setRangeCounts((current) => ({ ...current, [group.key]: safe })); }} /></label></div><div className="range-preview">{preview.map((range) => <span key={`${range.start}-${range.end}`}>{range.start}-{range.end} <small>{range.students} students</small></span>)}</div><button className="secondary-button" type="button" onClick={() => void saveRanges(group)} disabled={saving}>Save these ranges</button>{configured.length > 0 && <p className="muted">Saved: {configured.map((range) => `${range.place_start}-${range.place_end}`).join(", ")}</p>}</article>; })}</section>{groupCode === "boys" && <section className="classification-groups">{bigGroups.map((group) => <article className="admin-card classification-group big-group" key={group.ustaz?.id ?? "big"}><div className="card-title"><h2>Big - {group.ustaz?.full_name ?? "Ustaz"}</h2><strong>{group.students.length}</strong></div>{group.students.slice(0, 8).map((student) => <div className="classification-student" key={student.registrationId}><strong>{student.name}</strong><small>{student.number} - {student.level} - place {student.place}</small></div>)}{group.students.length > 8 && <p>Showing 8 of {group.students.length}.</p>}{group.students.length === 0 && <p>No students in this group.</p>}</article>)}</section>}</AdminShell>;
 }

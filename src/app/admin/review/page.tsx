@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/admin-shell";
 import { createClient } from "@/lib/supabase/client";
+import { getExamGroupScope } from "@/lib/exam-group-scope";
+import { useSelectedExamGroup } from "@/lib/use-selected-exam-group";
 import { alifFesels } from "@/lib/alif-fesels";
 import { surahs } from "@/lib/surahs";
 
@@ -17,6 +19,7 @@ function targetName(level: Student["level"], place: string) {
 }
 
 export default function ReviewAssignmentsPage() {
+  const groupCode = useSelectedExamGroup();
   const [periodId, setPeriodId] = useState<string | null>(null);
   const [examiners, setExaminers] = useState<Examiner[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -37,12 +40,14 @@ export default function ReviewAssignmentsPage() {
     setPeriodId(period.id);
     const [examinerResult, registrationResult, assignmentResult] = await Promise.all([
       supabase.from("profiles").select("id, full_name").eq("role", "examiner").eq("active", true).order("full_name"),
-      supabase.from("student_registrations").select("id, current_learning_level, current_learning_place, student:students(full_name), ustaz:profiles!student_registrations_ustaz_id_fkey(ustaz_code)").eq("exam_period_id", period.id).order("created_at"),
+      supabase.from("student_registrations").select("id, student_id, current_learning_level, current_learning_place, student:students(full_name), ustaz:profiles!student_registrations_ustaz_id_fkey(ustaz_code)").eq("exam_period_id", period.id).order("created_at"),
       supabase.from("examiner_assignments").select("id, student_registration_id, examiner_id").eq("exam_period_id", period.id),
     ]);
     const error = [examinerResult, registrationResult, assignmentResult].map((result) => result.error).find(Boolean);
     if (error) { setMessage(error.message); return; }
-    const registrations = (registrationResult.data ?? []).map((item) => {
+    const scope = await getExamGroupScope(supabase, groupCode);
+    if (scope.error) { setMessage(scope.error.message); return; }
+    const registrations = (registrationResult.data ?? []).filter((item) => scope.studentIds.has(item.student_id)).map((item) => {
       const student = item.student as unknown as { full_name: string };
       const ustaz = item.ustaz as unknown as { ustaz_code: string | null } | null;
       return { id: item.id, name: student.full_name, level: item.current_learning_level as "alif" | "quran", place: item.current_learning_place ?? "", ustazCode: ustaz?.ustaz_code ?? "—" };
@@ -52,13 +57,13 @@ export default function ReviewAssignmentsPage() {
       const student = byId.get(item.student_registration_id);
       return student ? [{ id: item.id, student_registration_id: item.student_registration_id, examiner_id: item.examiner_id, student }] : [];
     });
-    setExaminers(examinerResult.data ?? []);
+    setExaminers((examinerResult.data ?? []).filter((item) => scope.profileIds.has(item.id)));
     setAssignments(loadedAssignments);
     setUnassigned(registrations.filter((student) => !loadedAssignments.some((assignment) => assignment.student_registration_id === student.id)));
     setMessage("");
   }
 
-  useEffect(() => { const timer = window.setTimeout(() => { void loadData(); }, 0); return () => window.clearTimeout(timer); }, []);
+  useEffect(() => { const timer = window.setTimeout(() => { void loadData(); }, 0); return () => window.clearTimeout(timer); }, [groupCode]);
 
   const grouped = useMemo(() => examiners.map((examiner) => ({ examiner, students: assignments.filter((assignment) => assignment.examiner_id === examiner.id) })), [assignments, examiners]);
 

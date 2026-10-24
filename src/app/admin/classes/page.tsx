@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/admin-shell";
 import { loadDirectorData, rankLabels, Registration, Result, Ustaz } from "@/lib/director-data";
+import { useSelectedExamGroup } from "@/lib/use-selected-exam-group";
 
 type RankStudent = { id: string; studentName: string; ustazName: string; totalMark: number };
 
 export default function AdminClassesPage() {
+  const groupCode = useSelectedExamGroup();
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [results, setResults] = useState<Result[]>([]);
   const [ustazes, setUstazes] = useState<Ustaz[]>([]);
@@ -15,7 +17,7 @@ export default function AdminClassesPage() {
   async function load() {
     setMessage("Loading rank results...");
     try {
-      const data = await loadDirectorData();
+      const data = await loadDirectorData(groupCode);
       setRegistrations(data.registrations);
       setResults(data.results);
       setUstazes(data.ustazes);
@@ -23,7 +25,7 @@ export default function AdminClassesPage() {
     } catch (error) { setMessage(error instanceof Error ? error.message : "Could not load rank results."); }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); }, [groupCode]);
   const groups = useMemo<Record<Result["result_class"], RankStudent[]>>(() => {
     const registrationsById = new Map(registrations.map((registration) => [registration.id, registration]));
     const ustazesById = new Map(ustazes.map((ustaz) => [ustaz.id, ustaz]));

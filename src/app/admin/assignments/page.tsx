@@ -8,6 +8,7 @@ type Person = { id: string; full_name: string };
 type Group = { id: string; group_title: string; place_start: number; place_end: number; learning_level: "alif" | "quran"; examiner_id: string | null };
 type Student = { registrationId: string; name: string; number: string; ustazId: string; ustazName: string; level: "alif" | "quran"; place: number };
 type Assignment = { student_registration_id: string; examiner_id: string };
+type GroupMembership = { profile_id: string | null; student_id: string | null; exam_group: { code: "boys" | "girls" } | null };
 
 function escapeHtml(value: string) {
   return value.replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character] ?? character);
@@ -27,6 +28,11 @@ export default function AssignmentsPage() {
   const [manualExaminerId, setManualExaminerId] = useState("");
   const [message, setMessage] = useState("Loading examiner assignment data...");
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [groupCode, setGroupCode] = useState<"boys" | "girls">(() => {
+    if (typeof window === "undefined") return "boys";
+    const stored = window.localStorage.getItem("exam-group");
+    return stored === "girls" ? "girls" : "boys";
+  });
 
   async function loadData() {
     const supabase = createClient();
@@ -37,26 +43,38 @@ export default function AssignmentsPage() {
     const { data: period } = await supabase.from("exam_periods").select("id").order("created_at", { ascending: false }).limit(1).maybeSingle();
     if (!period) { setMessage("Create the current examination session first."); return; }
     setPeriodId(period.id);
-    const [examinerResult, ustazResult, linkResult, groupResult, registrationResult, bigResult, assignmentResult] = await Promise.all([
+    const [examinerResult, ustazResult, linkResult, groupResult, registrationResult, bigResult, assignmentResult, membershipResult, examGroupResult] = await Promise.all([
       supabase.from("profiles").select("id, full_name").eq("role", "examiner").eq("active", true).order("full_name"),
       supabase.from("profiles").select("id, full_name").eq("role", "ustaz").eq("active", true).order("full_name"),
       supabase.from("examiner_ustaz_links").select("examiner_id, ustaz_id"),
-      supabase.from("exam_assignment_groups").select("id, group_title, place_start, place_end, learning_level, examiner_id").eq("exam_period_id", period.id).order("group_order").order("place_start"),
-      supabase.from("student_registrations").select("id, ustaz_id, current_learning_level, current_learning_place, student:students(student_number, full_name), ustaz:profiles!student_registrations_ustaz_id_fkey(full_name)").eq("exam_period_id", period.id),
-      supabase.from("exam_period_big_ustazes").select("ustaz_id").eq("exam_period_id", period.id),
+      supabase.from("exam_assignment_groups").select("id, exam_group_id, group_title, place_start, place_end, learning_level, examiner_id").eq("exam_period_id", period.id).order("group_order").order("place_start"),
+      supabase.from("student_registrations").select("id, student_id, ustaz_id, current_learning_level, current_learning_place, student:students(student_number, full_name), ustaz:profiles!student_registrations_ustaz_id_fkey(full_name)").eq("exam_period_id", period.id),
+      supabase.from("exam_period_big_ustazes").select("ustaz_id,exam_group_id").eq("exam_period_id", period.id),
       supabase.from("examiner_assignments").select("student_registration_id, examiner_id").eq("exam_period_id", period.id),
+      supabase.from("exam_group_memberships").select("profile_id,student_id,exam_group:exam_groups(code)"),
+      supabase.from("exam_groups").select("id").eq("code", groupCode).maybeSingle(),
     ]);
-    const error = [examinerResult, ustazResult, linkResult, groupResult, registrationResult, bigResult, assignmentResult].map((result) => result.error).find(Boolean);
+    const error = [examinerResult, ustazResult, linkResult, groupResult, registrationResult, bigResult, assignmentResult, membershipResult, examGroupResult].map((result) => result.error).find(Boolean);
     if (error) { setMessage(error.message); return; }
-    const loadedGroups = groupResult.data ?? [];
-    setExaminers(examinerResult.data ?? []);
-    setUstazes(ustazResult.data ?? []);
+    const profileGroups = new Map<string, "boys" | "girls">();
+    const studentGroups = new Map<string, "boys" | "girls">();
+    (membershipResult.data as unknown as GroupMembership[] ?? []).forEach((membership) => {
+      const code = membership.exam_group?.code;
+      if (code === "boys" || code === "girls") {
+        if (membership.profile_id) profileGroups.set(membership.profile_id, code);
+        if (membership.student_id) studentGroups.set(membership.student_id, code);
+      }
+    });
+    const selectedGroupId = examGroupResult.data?.id;
+    const loadedGroups = (groupResult.data ?? []).filter((item) => item.exam_group_id === selectedGroupId);
+    setExaminers((examinerResult.data ?? []).filter((person) => profileGroups.get(person.id) === groupCode));
+    setUstazes((ustazResult.data ?? []).filter((person) => profileGroups.get(person.id) === groupCode));
     setLinks((linkResult.data ?? []).reduce<Record<string, string[]>>((result, link) => ({ ...result, [link.examiner_id]: [...(result[link.examiner_id] ?? []), link.ustaz_id] }), {}));
     setGroups(loadedGroups);
     setSelectedExaminers(loadedGroups.reduce<Record<string, string>>((result, group) => ({ ...result, [group.id]: group.examiner_id ?? "" }), {}));
-    setBigUstazIds((bigResult.data ?? []).map((item) => item.ustaz_id));
+    setBigUstazIds((bigResult.data ?? []).filter((item) => item.exam_group_id === selectedGroupId).map((item) => item.ustaz_id).filter((id) => profileGroups.get(id) === groupCode));
     setAssignments(assignmentResult.data ?? []);
-    setStudents((registrationResult.data ?? []).map((item) => {
+    setStudents((registrationResult.data ?? []).filter((item) => studentGroups.get(item.student_id) === groupCode).map((item) => {
       const student = item.student as unknown as { student_number: string; full_name: string };
       const ustaz = item.ustaz as unknown as { full_name: string } | null;
       return { registrationId: item.id, name: student.full_name, number: student.student_number, ustazId: item.ustaz_id, ustazName: ustaz?.full_name ?? "", level: item.current_learning_level as "alif" | "quran", place: Number(item.current_learning_place) };
@@ -64,7 +82,19 @@ export default function AssignmentsPage() {
     setMessage("");
   }
 
-  useEffect(() => { const timer = window.setTimeout(() => { void loadData(); }, 0); return () => window.clearTimeout(timer); }, []);
+  useEffect(() => { const timer = window.setTimeout(() => { void loadData(); }, 0); return () => window.clearTimeout(timer); }, [groupCode]);
+  useEffect(() => {
+    function onGroupChanged(event: Event) {
+      const code = (event as CustomEvent<"boys" | "girls">).detail;
+      if (code === "boys" || code === "girls") {
+        setGroupCode(code);
+        setSelectedStudentIds([]);
+        setManualExaminerId("");
+      }
+    }
+    window.addEventListener("exam-group-changed", onGroupChanged);
+    return () => window.removeEventListener("exam-group-changed", onGroupChanged);
+  }, []);
 
   const assignedIds = useMemo(() => new Set(assignments.map((assignment) => assignment.student_registration_id)), [assignments]);
   const conflictedAssignedIds = useMemo(() => {

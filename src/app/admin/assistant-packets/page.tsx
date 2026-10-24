@@ -3,8 +3,10 @@
 import { useEffect, useState } from "react";
 import { AdminShell } from "@/components/admin-shell";
 import { createClient } from "@/lib/supabase/client";
+import { getExamGroupScope } from "@/lib/exam-group-scope";
+import { useSelectedExamGroup } from "@/lib/use-selected-exam-group";
 
-type Registration = { id: string; current_learning_level: "alif" | "quran"; student: { full_name: string } | null };
+type Registration = { id: string; student_id: string; current_learning_level: "alif" | "quran"; student: { full_name: string } | null };
 type Assignment = { id: string; examiner_id: string; student_registration: Registration | null };
 type Examiner = { id: string; full_name: string };
 type Packet = { examiner: Examiner; students: Assignment[] };
@@ -20,6 +22,7 @@ function esc(value: string) { return value.replace(/[&<>"']/g, (character) => ({
 function studentName(assignment: Assignment) { return assignment.student_registration?.student?.full_name ?? "Unknown student"; }
 
 export default function AssistantPacketsPage() {
+  const groupCode = useSelectedExamGroup();
   const [packets, setPackets] = useState<Packet[]>([]);
   const [message, setMessage] = useState("Loading Examiner packets...");
 
@@ -30,17 +33,19 @@ export default function AssistantPacketsPage() {
       if (!period) { setMessage("No examination period found."); return; }
       const [examinerResponse, assignmentResponse] = await Promise.all([
         supabase.from("profiles").select("id,full_name").eq("role", "examiner").eq("active", true).order("full_name"),
-        supabase.from("examiner_assignments").select("id,examiner_id,student_registration:student_registrations(id,current_learning_level,student:students(full_name))").eq("exam_period_id", period.id).order("assigned_at"),
+        supabase.from("examiner_assignments").select("id,examiner_id,student_registration:student_registrations(id,student_id,current_learning_level,student:students(full_name))").eq("exam_period_id", period.id).order("assigned_at"),
       ]);
       const error = examinerResponse.error ?? assignmentResponse.error;
       if (error) { setMessage(error.message); return; }
-      const examiners = (examinerResponse.data ?? []) as Examiner[];
-      const assignments = (assignmentResponse.data ?? []) as unknown as Assignment[];
+      const scope = await getExamGroupScope(supabase, groupCode);
+      if (scope.error) { setMessage(scope.error.message); return; }
+      const examiners = ((examinerResponse.data ?? []) as Examiner[]).filter((examiner) => scope.profileIds.has(examiner.id));
+      const assignments = ((assignmentResponse.data ?? []) as unknown as Assignment[]).filter((assignment) => assignment.student_registration && scope.studentIds.has(assignment.student_registration.student_id));
       setPackets(examiners.map((examiner) => ({ examiner, students: assignments.filter((assignment) => assignment.examiner_id === examiner.id) })));
       setMessage("");
     }
     void load();
-  }, []);
+  }, [groupCode]);
 
   function packetHtml(packet: Packet) {
     const compactPacket = packet.students.length > 18;
@@ -66,5 +71,5 @@ export default function AssistantPacketsPage() {
     link.href = url; link.download = `examiner-packet-${packet.examiner.full_name.replace(/[^a-z0-9]+/gi, "-")}.doc`; link.click(); URL.revokeObjectURL(url);
   }
 
-  return <AdminShell active="packets"><header className="workspace-header"><div><p className="eyebrow">EXAM ADMIN · PHASE 3</p><h1>Assistant examiner packets</h1><p>Prepare one Hisnul Muslim and Homework mark-entry packet for each Examiner.</p></div></header>{message && <p className="admin-message">{message}</p>}<section className="review-list">{packets.map((packet) => <article className="admin-card review-student" key={packet.examiner.id}><div><h2>{packet.examiner.full_name}</h2><small>{packet.students.length} assigned student(s) · 20 Hisnul questions · Homework /5</small></div><div className="account-actions"><button className="primary-button" type="button" onClick={() => printPacket(packet)}>Print / Save PDF</button><button className="secondary-button" type="button" onClick={() => downloadWord(packet)}>Download Word</button></div></article>)}</section></AdminShell>;
+  return <AdminShell active="packets"><header className="workspace-header"><div><p className="eyebrow">EXAM ADMIN · PHASE 3</p><h1>Assistant examiner packets</h1><p>{groupCode === "girls" ? "Girls do not use Hisnul Muslim or Homework packets." : "Prepare one Hisnul Muslim and Homework mark-entry packet for each Examiner."}</p></div></header>{message && <p className="admin-message">{message}</p>}{groupCode === "girls" ? <section className="admin-card"><h2>Not used for the Girls examination</h2><p>Girls have Qur’an results only.</p></section> : <section className="review-list">{packets.map((packet) => <article className="admin-card review-student" key={packet.examiner.id}><div><h2>{packet.examiner.full_name}</h2><small>{packet.students.length} assigned student(s) · 20 Hisnul questions · Homework /5</small></div><div className="account-actions"><button className="primary-button" type="button" onClick={() => printPacket(packet)}>Print / Save PDF</button><button className="secondary-button" type="button" onClick={() => downloadWord(packet)}>Download Word</button></div></article>)}</section>}</AdminShell>;
 }

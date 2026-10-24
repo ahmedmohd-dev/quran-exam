@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AdminShell } from "@/components/admin-shell";
 import { createClient } from "@/lib/supabase/client";
+import { getExamGroupScope } from "@/lib/exam-group-scope";
+import { useSelectedExamGroup } from "@/lib/use-selected-exam-group";
 
 type Examiner = { id: string; full_name: string };
 type Registration = { id: string; student: { full_name: string } | null };
@@ -19,7 +21,7 @@ function resultLabel(result: Result | null) {
   return "Submitted";
 }
 
-function buildIssues(result: Result | null, supplemental: Supplemental | null) {
+function buildIssues(result: Result | null, supplemental: Supplemental | null, needsSupplemental: boolean) {
   if (!result) return ["No result started"];
   const issues: string[] = [];
   if (result.status === "draft") issues.push("Saved as draft, not submitted");
@@ -27,13 +29,14 @@ function buildIssues(result: Result | null, supplemental: Supplemental | null) {
   if (result.result_class === "second" && !result.revision_place) issues.push("Missing revision Fesel");
   if (!Array.isArray(result.round_scores) || !result.round_scores.length) issues.push("Question marks are empty");
   if (!Array.isArray(result.makhraj_scores) || !result.makhraj_scores.length) issues.push("Makhraj and Sifa marks are empty");
-  if (result.status === "submitted" && !supplemental) issues.push("Hisnul Muslim and homework not entered");
-  if (result.status === "submitted" && supplemental && supplemental.hisnul_muslim_mark === null) issues.push("Hisnul Muslim mark is missing");
-  if (result.status === "submitted" && supplemental && supplemental.homework_mark === null) issues.push("Homework mark is missing");
+  if (needsSupplemental && result.status === "submitted" && !supplemental) issues.push("Hisnul Muslim and homework not entered");
+  if (needsSupplemental && result.status === "submitted" && supplemental && supplemental.hisnul_muslim_mark === null) issues.push("Hisnul Muslim mark is missing");
+  if (needsSupplemental && result.status === "submitted" && supplemental && supplemental.homework_mark === null) issues.push("Homework mark is missing");
   return issues;
 }
 
 export default function AdminProgressPage() {
+  const groupCode = useSelectedExamGroup();
   const [periodName, setPeriodName] = useState("Current examination");
   const [groups, setGroups] = useState<ProgressExaminer[]>([]);
   const [unassigned, setUnassigned] = useState<string[]>([]);
@@ -49,15 +52,18 @@ export default function AdminProgressPage() {
     setPeriodName(period.name ?? "Current examination");
     const [examinerQuery, registrationQuery, assignmentQuery, resultQuery] = await Promise.all([
       supabase.from("profiles").select("id, full_name").eq("role", "examiner").eq("active", true).order("full_name"),
-      supabase.from("student_registrations").select("id, student:students(full_name)").eq("exam_period_id", period.id),
+      supabase.from("student_registrations").select("id, student_id, student:students(full_name)").eq("exam_period_id", period.id),
       supabase.from("examiner_assignments").select("id, student_registration_id, examiner_id").eq("exam_period_id", period.id),
       supabase.from("exam_results").select("id, examiner_assignment_id, status, total_mark, result_class, revision_place, examiner_comment, round_scores, makhraj_scores").eq("exam_period_id", period.id),
     ]);
     const error = [examinerQuery, registrationQuery, assignmentQuery, resultQuery].map((query) => query.error).find(Boolean);
     if (error) { setMessage(error.message); return; }
-    const examiners = (examinerQuery.data ?? []) as Examiner[];
-    const registrations = (registrationQuery.data ?? []) as unknown as Registration[];
-    const assignments = (assignmentQuery.data ?? []) as Assignment[];
+    const scope = await getExamGroupScope(supabase, groupCode);
+    if (scope.error) { setMessage(scope.error.message); return; }
+    const examiners = (examinerQuery.data ?? []).filter((item) => scope.profileIds.has(item.id)) as Examiner[];
+    const registrations = (registrationQuery.data ?? []).filter((item) => scope.studentIds.has(item.student_id)) as unknown as Registration[];
+    const registrationIds = new Set(registrations.map((registration) => registration.id));
+    const assignments = (assignmentQuery.data ?? []).filter((assignment) => registrationIds.has(assignment.student_registration_id)) as Assignment[];
     const results = new Map(((resultQuery.data ?? []) as Result[]).map((result) => [result.examiner_assignment_id, result]));
     const assignmentIds = assignments.map((assignment) => assignment.id);
     const supplementalQuery = assignmentIds.length ? await supabase.from("exam_supplemental_results").select("examiner_assignment_id,hisnul_muslim_mark,homework_mark").in("examiner_assignment_id", assignmentIds) : { data: [], error: null };
@@ -66,11 +72,11 @@ export default function AdminProgressPage() {
     const names = new Map(registrations.map((registration) => [registration.id, registration.student?.full_name ?? "Unknown student"]));
     const assignedIds = new Set(assignments.map((assignment) => assignment.student_registration_id));
     setUnassigned(registrations.filter((registration) => !assignedIds.has(registration.id)).map((registration) => names.get(registration.id) ?? "Unknown student"));
-    setGroups(examiners.map((examiner) => ({ examiner, students: assignments.filter((assignment) => assignment.examiner_id === examiner.id).map((assignment) => { const result = results.get(assignment.id) ?? null; return { assignment, name: names.get(assignment.student_registration_id) ?? "Unknown student", result, issues: buildIssues(result, supplemental.get(assignment.id) ?? null) }; }) })));
+    setGroups(examiners.map((examiner) => ({ examiner, students: assignments.filter((assignment) => assignment.examiner_id === examiner.id).map((assignment) => { const result = results.get(assignment.id) ?? null; return { assignment, name: names.get(assignment.student_registration_id) ?? "Unknown student", result, issues: buildIssues(result, supplemental.get(assignment.id) ?? null, groupCode === "boys") }; }) })));
     setMessage("");
   }
 
-  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, []);
+  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [groupCode]);
 
   const summary = useMemo(() => {
     const students = groups.flatMap((group) => group.students);

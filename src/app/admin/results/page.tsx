@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AdminShell } from "@/components/admin-shell";
 import { createClient } from "@/lib/supabase/client";
+import { getExamGroupScope } from "@/lib/exam-group-scope";
+import { useSelectedExamGroup } from "@/lib/use-selected-exam-group";
 import { alifFesels } from "@/lib/alif-fesels";
 import { surahs } from "@/lib/surahs";
 
@@ -11,6 +13,7 @@ type Result = { id: string; examiner_assignment_id: string; student_registration
 type Supplemental = { student_registration_id: string; hisnul_muslim_mark: number; homework_mark: number };
 
 export default function AdminResultsPage() {
+  const groupCode = useSelectedExamGroup();
   const [results, setResults] = useState<Result[]>([]);
   const [supplemental, setSupplemental] = useState<Map<string, Supplemental>>(new Map());
   const [message, setMessage] = useState("Loading test results...");
@@ -26,8 +29,18 @@ export default function AdminResultsPage() {
     if (!user) return;
     const { data, error } = await supabase.from("exam_results").select("id, examiner_assignment_id, student_registration_id, status, total_mark, result_class, revision_place, revision_track, examiner_comment, examiner:profiles!exam_results_examiner_id_fkey(full_name), assignment:examiner_assignments(student_registration:student_registrations(student:students(full_name),ustaz:profiles!student_registrations_ustaz_id_fkey(full_name)))").order("updated_at", { ascending: false });
     if (error) { setMessage(error.message); return; }
-    setResults((data ?? []) as unknown as Result[]);
-    const registrationIds = ((data ?? []) as unknown as Result[]).map((result) => result.student_registration_id);
+    const scope = await getExamGroupScope(supabase, groupCode);
+    if (scope.error) { setMessage(scope.error.message); return; }
+    const allResults = (data ?? []) as unknown as Result[];
+    const allRegistrationIds = allResults.map((result) => result.student_registration_id);
+    const { data: registrations, error: registrationsError } = allRegistrationIds.length
+      ? await supabase.from("student_registrations").select("id,student_id").in("id", allRegistrationIds)
+      : { data: [], error: null };
+    if (registrationsError) { setMessage(registrationsError.message); return; }
+    const scopedRegistrationIds = new Set((registrations ?? []).filter((registration) => scope.studentIds.has(registration.student_id)).map((registration) => registration.id));
+    const scopedResults = allResults.filter((result) => scopedRegistrationIds.has(result.student_registration_id));
+    setResults(scopedResults);
+    const registrationIds = scopedResults.map((result) => result.student_registration_id);
     if (registrationIds.length) {
       const { data: extra, error: extraError } = await supabase.from("exam_supplemental_results").select("student_registration_id,hisnul_muslim_mark,homework_mark").in("student_registration_id", registrationIds);
       if (extraError) { setMessage(extraError.message); return; }
@@ -36,7 +49,7 @@ export default function AdminResultsPage() {
     setMessage("");
   }
 
-  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, []);
+  useEffect(() => { const timer = window.setTimeout(() => void load(), 0); return () => window.clearTimeout(timer); }, [groupCode]);
 
   async function clearResult(result: Result) {
     const name = result.assignment?.student_registration?.student?.full_name ?? "this student";

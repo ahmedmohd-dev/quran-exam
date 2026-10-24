@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AdminShell } from "@/components/admin-shell";
 import { buildProgress, loadDirectorData, UstazProgress } from "@/lib/director-data";
+import { useSelectedExamGroup } from "@/lib/use-selected-exam-group";
 
 type RankingRow = { rank: number; name: string; average: number; students: number };
 
@@ -22,19 +23,20 @@ function RankingTable({ title, rows }: { title: string; rows: RankingRow[] }) {
 }
 
 export default function AdminUstazRankingsPage() {
+  const groupCode = useSelectedExamGroup();
   const [progress, setProgress] = useState<UstazProgress[]>([]);
   const [message, setMessage] = useState("Loading Ustaz rankings...");
 
   const load = useCallback(async () => {
     setMessage("Loading Ustaz rankings...");
     try {
-      const data = await loadDirectorData();
-      setProgress(buildProgress(data.ustazes, data.registrations, data.results, data.supplemental));
+      const data = await loadDirectorData(groupCode);
+      setProgress(buildProgress(data.ustazes, data.registrations, data.results, data.supplemental, groupCode === "boys"));
       setMessage("");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not load Ustaz rankings.");
     }
-  }, []);
+  }, [groupCode]);
 
   useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, [load]);
 
@@ -44,5 +46,5 @@ export default function AdminUstazRankingsPage() {
     homework: makeRows(progress, (item) => item.homeworkAverage, (item) => item.homeworkCount),
   }), [progress]);
 
-  return <AdminShell active="ustazRankings"><header className="workspace-header"><div><p className="eyebrow">EXAM ADMIN</p><h1>Ustaz rankings</h1><p>Compare the average results of each top-level Ustaz group.</p></div><button className="secondary-button" type="button" onClick={() => void load()}>Refresh rankings</button></header>{message && <p className="admin-message">{message}</p>}{!message && <><p className="ranking-note">Mohammed and Namus include their managed Ustazes. Students with exactly 1 or 2 months are excluded only from the Hisnul Muslim ranking.</p><RankingTable title="Qur’an average ranking" rows={rankings.quran} /><RankingTable title="Hisnul Muslim average ranking" rows={rankings.hisnul} /><RankingTable title="Homework average ranking" rows={rankings.homework} /></>}</AdminShell>;
+  return <AdminShell active="ustazRankings"><header className="workspace-header"><div><p className="eyebrow">EXAM ADMIN</p><h1>Ustaz rankings</h1><p>Compare the average results of each Ustaz.</p></div><button className="secondary-button" type="button" onClick={() => void load()}>Refresh rankings</button></header>{message && <p className="admin-message">{message}</p>}{!message && <><p className="ranking-note">{groupCode === "boys" ? "Mohammed and Namus include their managed Ustazes. Students with exactly 1 or 2 months are excluded only from the Hisnul Muslim ranking." : "Girls are ranked directly by their own students’ Qur’an results."}</p><RankingTable title="Qur’an average ranking" rows={rankings.quran} />{groupCode === "boys" && <><RankingTable title="Hisnul Muslim average ranking" rows={rankings.hisnul} /><RankingTable title="Homework average ranking" rows={rankings.homework} /></>}</>}</AdminShell>;
 }

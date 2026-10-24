@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { AdminShell } from "@/components/admin-shell";
 import { createClient } from "@/lib/supabase/client";
+import { getExamGroupScope } from "@/lib/exam-group-scope";
+import { useSelectedExamGroup } from "@/lib/use-selected-exam-group";
 
 type ZeroRow = {
   student: string;
@@ -19,6 +21,7 @@ function zeroCategories(row: ZeroRow) {
 }
 
 export default function AdminZeroReportPage() {
+  const groupCode = useSelectedExamGroup();
   const [periodName, setPeriodName] = useState("");
   const [rows, setRows] = useState<ZeroRow[]>([]);
   const [message, setMessage] = useState("Loading zero-mark report...");
@@ -36,7 +39,9 @@ export default function AdminZeroReportPage() {
     const error = [registrationQuery.error, supplementalQuery.error].find(Boolean);
     if (error) { setMessage(error.message); return; }
 
-    const registrations = registrationQuery.data ?? [];
+    const scope = await getExamGroupScope(supabase, groupCode);
+    if (scope.error) { setMessage(scope.error.message); return; }
+    const registrations = (registrationQuery.data ?? []).filter((registration) => scope.studentIds.has(registration.student_id));
     const studentIds = [...new Set(registrations.map((registration) => registration.student_id))];
     const ustazIds = [...new Set(registrations.map((registration) => registration.ustaz_id))];
     const [studentQuery, ustazQuery] = await Promise.all([
@@ -58,7 +63,7 @@ export default function AdminZeroReportPage() {
     setPeriodName(period.name ?? "Current examination");
     setRows(zeroRows);
     setMessage("");
-  }, []);
+  }, [groupCode]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void load(); }, 0);
@@ -75,7 +80,7 @@ export default function AdminZeroReportPage() {
       <button className="secondary-button" type="button" onClick={() => void load()}>Refresh report</button>
     </header>
     {message && <p className="admin-message">{message}</p>}
-    {!message && <>
+    {!message && groupCode === "boys" && <>
       <section className="result-metrics age-result-metrics">
         <article><span>Students with any zero</span><strong>{rows.length}</strong></article>
         <article><span>Hisnul Muslim zero</span><strong>{hisnulZero}</strong></article>
@@ -87,6 +92,6 @@ export default function AdminZeroReportPage() {
         <div className="age-results-table-wrap"><table className="age-results-table"><thead><tr><th>Student</th><th>Age</th><th>Ustaz</th><th>Zero result</th><th>Hisnul Muslim</th><th>Homework</th></tr></thead><tbody>{rows.map((row) => <tr key={`${row.student}-${row.ustaz}`}><th>{row.student}</th><td>{row.age ?? "—"}</td><td>{row.ustaz}</td><td><strong>{zeroCategories(row)}</strong></td><td>{row.hisnul === null ? "—" : `${row.hisnul} / 20`}</td><td>{row.homework === null ? "—" : `${row.homework} / 5`}</td></tr>)}</tbody></table></div>
         {!rows.length && <p className="empty-state">No recorded zero marks were found.</p>}
       </section>
-    </>}
+    </>}{!message && groupCode === "girls" && <section className="admin-card"><h2>Not used for the Girls examination</h2><p>Girls have Qur’an results only, so Hisnul Muslim and Homework zero-mark reports are not needed.</p></section>}
   </AdminShell>;
 }

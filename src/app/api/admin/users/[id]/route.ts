@@ -39,5 +39,27 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
   if (connection.error) return connection.error;
   const { id } = await params;
   const { error } = await connection.admin.auth.admin.deleteUser(id);
-  return error ? NextResponse.json({ error: error.message }, { status: 400 }) : NextResponse.json({ ok: true });
+  if (!error) return NextResponse.json({ ok: true });
+
+  // Keep exam history and student ownership intact. Accounts with saved records
+  // cannot be physically deleted because the database deliberately protects them.
+  const errorCode = "code" in error && error.code ? String(error.code) : "";
+  const errorText = `${error.message} ${errorCode}`;
+  const isProtectedRecordError = /foreign key|violates.*constraint|constraint.*foreign|23503|database error deleting user|unexpected_failure/i.test(errorText);
+  if (isProtectedRecordError) {
+    const { error: disableError } = await connection.admin
+      .from("profiles")
+      .update({ active: false })
+      .eq("id", id);
+    if (!disableError) {
+      return NextResponse.json({
+        ok: true,
+        deactivated: true,
+        message: "This account has saved student or exam records, so it was disabled instead of deleted. The records were preserved.",
+      });
+    }
+    return NextResponse.json({ error: `The account could not be disabled: ${disableError.message}` }, { status: 400 });
+  }
+
+  return NextResponse.json({ error: error.message }, { status: 400 });
 }

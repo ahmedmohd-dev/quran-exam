@@ -3,10 +3,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { AdminShell } from "@/components/admin-shell";
+import { getExamGroupScope } from "@/lib/exam-group-scope";
+import { useSelectedExamGroup } from "@/lib/use-selected-exam-group";
 
 type Profile = { id: string; full_name: string; username: string | null; ustaz_code: string | null; role: string; manager_id: string | null; active: boolean };
 
 export default function UsersPage() {
+  const groupCode = useSelectedExamGroup();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [message, setMessage] = useState("Loading accounts…");
   const [saving, setSaving] = useState(false);
@@ -25,11 +28,16 @@ export default function UsersPage() {
       setMessage("Could not load accounts. Please check your connection.");
       return;
     }
-    setProfiles(data ?? []);
+    const scope = await getExamGroupScope(supabase, groupCode);
+    if (scope.error) {
+      setMessage(scope.error.message);
+      return;
+    }
+    setProfiles((data ?? []).filter((profile) => profile.role === "admin" || profile.role === "director" || scope.profileIds.has(profile.id)));
     setMessage("");
   }
 
-  useEffect(() => { const timer = window.setTimeout(() => { void loadProfiles(); }, 0); return () => window.clearTimeout(timer); }, []);
+  useEffect(() => { const timer = window.setTimeout(() => { void loadProfiles(); }, 0); return () => window.clearTimeout(timer); }, [groupCode]);
 
   async function createUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -44,6 +52,7 @@ export default function UsersPage() {
         username: form.get("username"),
         password: form.get("password"),
         role: form.get("role"),
+        groupCode: form.get("groupCode"),
       }),
     });
     const result = await response.json() as { error?: string };
@@ -83,10 +92,16 @@ export default function UsersPage() {
 
   async function deleteProfile(profile: Profile) {
     if (!window.confirm(`Delete ${profile.full_name}'s account? This cannot be undone.`)) return;
-    const response = await fetch(`/api/admin/users/${profile.id}`, { method: "DELETE" });
-    const result = await response.json() as { error?: string };
-    setMessage(response.ok ? "Account deleted." : result.error ?? "Could not delete the account.");
-    await loadProfiles();
+    try {
+      const response = await fetch(`/api/admin/users/${profile.id}`, { method: "DELETE" });
+      const result = await response.json() as { error?: string; deactivated?: boolean; message?: string };
+      setMessage(response.ok
+        ? result.message ?? (result.deactivated ? "Account disabled; saved records were preserved." : "Account deleted.")
+        : result.error ?? "Could not delete the account.");
+      await loadProfiles();
+    } catch {
+      setMessage("Could not contact the server. Refresh the page and try again.");
+    }
   }
 
   return (
@@ -99,6 +114,7 @@ export default function UsersPage() {
           <label>Username<input name="username" required pattern="[a-z0-9._-]{3,32}" title="Use 3–32 lowercase letters, numbers, dots, dashes, or underscores." placeholder="ustaz.abubakar" /></label>
           <label>Temporary password<input name="password" required minLength={8} type="password" autoComplete="new-password" /></label>
           <label className="account-role">Role<select name="role" defaultValue="ustaz"><option value="ustaz">Ustaz</option><option value="examiner">Examiner</option><option value="director">Director Ustaz</option></select></label>
+          <label className="account-role">Examination group<select name="groupCode" defaultValue="boys"><option value="boys">Boys</option><option value="girls">Girls</option></select></label>
           <button className="account-create-button" type="submit" disabled={saving}>{saving ? "Creating…" : "Create account"}</button>
         </form>
         <section className="admin-card"><div className="card-title"><div><h2>Accounts</h2><p>Each person can sign in with their own username.</p></div><span>{profiles.length}</span></div>{message && <p className="admin-message">{message}</p>}{profiles.map((profile) => <article className="period-row" key={profile.id}><div><strong>{profile.full_name}</strong><span>{profile.ustaz_code ? `${profile.ustaz_code} · ` : ""}{profile.username ?? "Admin email account"} · {profile.role}</span>{profile.role === "ustaz" && <label className="manager-select">Managed by<select value={profile.manager_id ?? ""} onChange={(event) => void saveManager(profile, event.target.value)}><option value="">No manager</option>{profiles.filter((candidate) => candidate.role === "ustaz" && candidate.id !== profile.id).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.full_name}</option>)}</select></label>}</div><div className="account-actions"><span className={`tag ${profile.active ? "complete" : "attention"}`}>{profile.active ? "Active" : "Inactive"}</span><button type="button" className="text-button" onClick={() => editProfile(profile)}>Edit</button>{profile.username && <button type="button" className="text-button" onClick={() => resetPassword(profile)}>Reset password</button>}<button type="button" className="text-button delete-button" onClick={() => deleteProfile(profile)}>Delete</button></div></article>)}{!message && profiles.length === 0 && <div className="empty-state"><span>◉</span><strong>No accounts yet</strong><p>Create Ustaz accounts first. They will only see students assigned under their own account.</p></div>}</section>

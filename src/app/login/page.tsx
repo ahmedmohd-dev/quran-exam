@@ -4,7 +4,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 import logo from "../../../assets/logo.jpg";
-import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
   const [error, setError] = useState("");
@@ -16,19 +15,36 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     const formData = new FormData(event.currentTarget);
-    const supabase = createClient();
-    const login = String(formData.get("email")).trim().toLowerCase();
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: login.includes("@") ? login : `${login}@users.merekez.local`,
-      password: String(formData.get("password")),
-    });
-    setLoading(false);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 10_000);
 
-    if (signInError) {
-      setError("Your email address or password is incorrect. Please try again.");
-      return;
+    try {
+      const response = await fetch("/api/auth/sign-in", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        cache: "no-store",
+        signal: controller.signal,
+        body: JSON.stringify({
+          email: String(formData.get("email")),
+          password: String(formData.get("password")),
+        }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(typeof result.error === "string" ? result.error : "Sign-in failed. Please try again.");
+        setLoading(false);
+        return;
+      }
+      window.location.assign("/");
+    } catch (error) {
+      setError(error instanceof DOMException && error.name === "AbortError"
+        ? "The sign-in service took too long. Check your internet connection and try again."
+        : "Sign-in failed. Please try again.");
+      setLoading(false);
+    } finally {
+      window.clearTimeout(timeoutId);
     }
-    window.location.assign("/");
   }
 
   return (
