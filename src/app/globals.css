@@ -1385,9 +1385,17 @@
   .sidebar.mobile-open {
     display: flex !important;
     inset: 0 0 auto;
-    min-height: 100vh;
+    height: 100dvh;
+    max-height: 100dvh;
+    min-height: 100dvh;
+    overflow-y: auto;
     position: fixed;
     z-index: 30;
+  }
+  .sidebar.mobile-open .profile-card {
+    flex-shrink: 0;
+    margin-top: auto;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
   }
   .student-row {
     grid-template-columns: 38px minmax(0, 1fr) 82px;

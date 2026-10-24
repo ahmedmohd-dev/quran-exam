@@ -315,13 +315,13 @@ export default function Home() {
           >
             መመዝገቢያ
           </button>
-          <button
+          {(role !== "ustaz" || groupCode === "boys") && <button
             className="nav-link"
             type="button"
             onClick={() => window.location.assign("/students")}
           >
             የእኔ ተማሪዎች
-          </button>
+          </button>}
           {role === "ustaz" && groupCode === "boys" && <>
             <button className="nav-link" type="button" onClick={() => window.location.assign("/school-information")}>የትምህርት ቤት መረጃ</button>
             <button className="nav-link" type="button" onClick={() => window.location.assign("/results")}>የተማሪዎቼ ውጤት</button>
